@@ -55,11 +55,22 @@ def test_failed_signature_prevents_all_delivery():
 
 
 def test_signature_with_wrong_profile_or_build_is_not_accepted():
-    payload = {'predicate': {'mospromSource': {'backendSha': 'a' * 40, 'frontendSha': 'b' * 40}}}
+    payload = {'predicate': {'buildDefinition': {'externalParameters': {'mospromSource': {'backendSha': 'a' * 40, 'frontendSha': 'b' * 40}}}}}
     raw = json.dumps({'payload': base64.b64encode(json.dumps(payload).encode()).decode()})
     with patch('prototype_release.subprocess.run'), patch('prototype_release.subprocess.check_output', return_value=raw):
         with pytest.raises(ValueError, match='provenance'):
             verify(release())
+
+
+def test_valid_slsa_parameters_keep_the_complete_build_coordinates():
+    data = release()
+    coordinates = {name: data[name] for name in ('backendSha', 'frontendSha', 'profile', 'runId', 'runAttempt')}
+    statement = {'predicate': {'buildDefinition': {'externalParameters': {'mospromSource': coordinates}}}}
+    raw = json.dumps({'payload': base64.b64encode(json.dumps(statement).encode()).decode()})
+    with patch('prototype_release.subprocess.run') as signatures, \
+            patch('prototype_release.subprocess.check_output', return_value=raw):
+        verify(data)
+    assert signatures.call_count == 4
 
 
 def test_configuration_drift_blocks_before_registry_or_docker(tmp_path):

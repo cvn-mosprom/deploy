@@ -72,9 +72,9 @@ def verify(data: dict, *, env=None):
         reference = image['repository'] + '@' + image['digest']
         options = ['--certificate-identity', IDENTITY, '--certificate-oidc-issuer', ISSUER]
         subprocess.run(['cosign', 'verify', *options, reference], check=True, env=env, stdout=subprocess.DEVNULL)
-        raw = subprocess.check_output(['cosign', 'verify-attestation', '--type', 'slsaprovenance',
+        raw = subprocess.check_output(['cosign', 'verify-attestation', '--type', 'slsaprovenance1',
                                        *options, reference], text=True, env=env)
-        if not any(json.loads(base64.b64decode(item['payload']))['predicate'].get('mospromSource') == expected
+        if not any(json.loads(base64.b64decode(item['payload']))['predicate'].get('buildDefinition', {}).get('externalParameters', {}).get('mospromSource') == expected
                    for item in envelopes(raw)):
             raise ValueError('signed provenance does not match prototype sources')
 

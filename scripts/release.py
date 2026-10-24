@@ -47,7 +47,7 @@ def verify(data: dict, issuer: str = "https://token.actions.githubusercontent.co
         ref = f'{image["repository"]}@{image["digest"]}'
         identity = "https://github.com/cvn-mosprom/backend/.github/workflows/ci.yml@refs/heads/main"
         subprocess.run(["cosign", "verify", "--certificate-identity", identity, "--certificate-oidc-issuer", issuer, ref], check=True, stdout=subprocess.DEVNULL)
-        attested = subprocess.check_output(["cosign", "verify-attestation", "--type", "slsaprovenance", "--certificate-identity", identity,
+        attested = subprocess.check_output(["cosign", "verify-attestation", "--type", "slsaprovenance1", "--certificate-identity", identity,
                                            "--certificate-oidc-issuer", issuer, ref], text=True)
         envelopes = []
         rest = attested.strip()
@@ -57,7 +57,7 @@ def verify(data: dict, issuer: str = "https://token.actions.githubusercontent.co
             envelopes.extend(item if isinstance(item, list) else [item])
             rest = rest[consumed:].lstrip()
         expected = {"backendSha": data["backendSha"], "frontendSha": data["frontendSha"]}
-        if not any(json.loads(base64.b64decode(e["payload"]))["predicate"].get("mospromSource") == expected for e in envelopes):
+        if not any(json.loads(base64.b64decode(e["payload"]))["predicate"].get("buildDefinition", {}).get("externalParameters", {}).get("mospromSource") == expected for e in envelopes):
             raise ValueError("signed provenance does not match release sources")
         platforms = json.loads(subprocess.check_output(["docker", "buildx", "imagetools", "inspect", ref, "--raw"], text=True))
         if not any(m.get("platform", {}).get("architecture") == "amd64" and m.get("platform", {}).get("os") == "linux" for m in platforms.get("manifests", [])):

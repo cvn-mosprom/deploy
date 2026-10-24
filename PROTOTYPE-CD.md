@@ -6,7 +6,7 @@
 
 1. Успешный frontend CI открывает PR обновления submodule в одноимённую ветку backend. PR нужно проверить и слить.
 2. После quality, integration и security backend собирает четыре linux/amd64 образа с SBOM/provenance. Trivy High/Critical, включая unfixed, блокирует публикацию. В GHCR поступает тот же OCI-архив, без повторной сборки.
-3. Подпись cosign привязана к `backend/.github/workflows/ci.yml@refs/heads/infra/devops-regional-routing`. Аттестация включает профиль, исходные SHA, номер и попытку CI. Манифест не допускает смешивания запусков.
+3. Подпись cosign привязана к `backend/.github/workflows/ci.yml@refs/heads/infra/devops-regional-routing`. Аттестация SLSA v1 включает профиль, исходные SHA, номер и попытку CI в `buildDefinition.externalParameters`. Манифест не допускает смешивания запусков.
 4. `deliver-prototype` работает в environment `prototype`, только при `PROTOTYPE_CD_ENABLED=true`. Манифест и краткоживущий GITHUB_TOKEN с чтением packages передаются по SSH с закреплённым host key. Токен удаляется вместе с временным Docker config после доставки.
 5. Сервер повторно проверяет подписи/provenance, загружает digest, сохраняет дамп, останавливает бот, выполняет миграции и обновляет только sim/API/bot/web с `--no-deps`. Проверяются readiness, фактический release ID, лендинг, `/app` и процесс бота. Hosted runner дополнительно проверяет публичный HTTPS.
 

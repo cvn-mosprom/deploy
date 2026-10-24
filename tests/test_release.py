@@ -75,7 +75,7 @@ def test_signed_image_must_support_target_platform():
     import base64
     from unittest.mock import patch
     from release import verify
-    source = {'predicate': {'mospromSource': {'backendSha': 'a' * 40, 'frontendSha': 'b' * 40}}}
+    source = {'predicate': {'buildDefinition': {'externalParameters': {'mospromSource': {'backendSha': 'a' * 40, 'frontendSha': 'b' * 40}}}}}
     envelope = json.dumps({'payload': base64.b64encode(json.dumps(source).encode()).decode()})
     with patch('release.subprocess.run'), patch('release.subprocess.check_output', side_effect=[envelope, '{"manifests": []}']):
         with pytest.raises(ValueError, match='amd64'):

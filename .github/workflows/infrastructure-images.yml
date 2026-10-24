@@ -22,7 +22,7 @@ jobs:
           platforms: linux/amd64
           outputs: type=oci,dest=/tmp/image.tar
           tags: ghcr.io/cvn-mosprom/${{ matrix.name }}:sha-${{ github.sha }}
-          provenance: mode=max
+          provenance: mode=max,version=v1
           sbom: true
       - name: Open the OCI layout for Trivy
         run: |
@@ -31,6 +31,7 @@ jobs:
       - uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
         with: {input: '${{ runner.temp }}/image-oci', severity: 'HIGH,CRITICAL', exit-code: '1', ignore-unfixed: false}
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+        with: {cosign-release: v3.0.5}
       - name: Publish scanned artifact and sign
         env: {IMAGE: '${{ matrix.name }}'}
         run: |
