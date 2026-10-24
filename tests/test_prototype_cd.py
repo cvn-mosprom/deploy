@@ -226,3 +226,26 @@ def test_external_menu_failure_is_rejected_before_any_docker_change(tmp_path):
             receiver.deploy(data, 'synthetic-token', 'ci-actor')
     command.assert_not_called()
     assert not (tmp_path / 'releases').exists()
+
+
+def test_true_telegram_acknowledgement_cannot_hide_an_unchanged_menu(tmp_path):
+    from unittest.mock import MagicMock
+    runtime = tmp_path / 'runtime.env'
+    runtime.write_text('BOT_TOKEN=synthetic\nWEBAPP_URL=https://ochakovo.velikoss.ru/app\n')
+    stale = {'ok': True, 'result': {'type': 'web_app', 'web_app': {'url': 'https://old.example/app'}}}
+    replies = [{'ok': True, 'result': {'username': 'cvnprombot'}}, stale,
+               {'ok': True, 'result': True}, *[stale] * 4]
+    opener = MagicMock()
+    responses = []
+    for data in replies:
+        response = MagicMock()
+        response.__enter__.return_value = io.BytesIO(json.dumps(data).encode())
+        responses.append(response)
+    opener.open.side_effect = responses
+    with patch.object(receiver, 'RUNTIME', runtime), \
+            patch.object(receiver.urllib.request, 'build_opener', return_value=opener), \
+            patch.object(receiver.time, 'sleep') as delay:
+        with pytest.raises(receiver.TelegramMenuError, match='bot_menu_stale'):
+            receiver.reconcile_telegram_menu()
+    assert opener.open.call_count == 7
+    assert delay.call_count == 3

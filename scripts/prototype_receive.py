@@ -67,7 +67,7 @@ def reconcile_telegram_menu():
     def call(method, body=None):
         parameters = {key: json.dumps(value) if isinstance(value, (dict, list)) else value
                       for key, value in (body or {}).items()}
-        # This route acknowledges body-only setters without applying them. Bot API also accepts query parameters.
+        # Bot API accepts JSON-serialized menu configuration in query parameters.
         # Only the public menu configuration goes in the query; never messages or personal data.
         query = '?' + urllib.parse.urlencode(parameters) if parameters else ''
         request = urllib.request.Request('https://api.telegram.org/bot' + runtime['BOT_TOKEN'] + '/' + method + query,
