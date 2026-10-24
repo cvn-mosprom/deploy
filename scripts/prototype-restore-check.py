@@ -5,10 +5,13 @@ import time
 
 root = Path(os.environ.get("PROTOTYPE_STATE_DIR", "/opt/mosprom-prototype"))
 runtime = {}
-for line in (root / "runtime.env").read_text().splitlines():
-    if line and not line.startswith("#"):
-        k, _, v = line.partition("=")
-        runtime[k] = v
+for env_path in (root / "runtime.env", root / "cd/current-images.env"):
+    if not env_path.exists():
+        continue
+    for line in env_path.read_text().splitlines():
+        if line and not line.startswith("#"):
+            k, _, v = line.partition("=")
+            runtime[k] = v
 name = "mosprom-prototype-restore-check"
 db = "mosprom_restore_verification"
 q = subprocess.check_output(
