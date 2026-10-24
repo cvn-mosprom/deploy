@@ -136,7 +136,7 @@ try:
             "--security-opt",
             "no-new-privileges:true",
             "--tmpfs",
-            "/tmp:rw,nosuid,noexec,size=32m",
+            "/tmp:rw,nosuid,noexec,size=32m",  # nosec B108: private container tmpfs, no host temporary file
             "--env-file",
             str(checkenv),
             runtime["API_IMAGE"],
