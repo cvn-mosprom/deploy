@@ -10,7 +10,7 @@ services:
         FRONTEND_REVISION: ${SIM_COMMIT}
         REGIONAL_ROUTING: "0"
         VITE_HR_DEMO: "1"
-        VITE_TG_APP_URL: https://t.me/cvnprombot
+        VITE_TG_APP_URL: ""
   api:
     image: mosprom-api:demo
     env_file: !override [{path: "${DEMO_ENV_FILE}", required: true}]
