@@ -47,6 +47,16 @@ def test_only_application_images_are_rendered():
     assert 'POSTGRES_IMAGE' not in text and 'REDIS_IMAGE' not in text
 
 
+def test_prototype_trust_is_restricted_to_main():
+    assert IDENTITY == "https://github.com/cvn-mosprom/backend/.github/workflows/ci.yml@refs/heads/main"
+    with patch('prototype_release.subprocess.run', side_effect=subprocess.CalledProcessError(1, 'cosign')) as runner:
+        with pytest.raises(subprocess.CalledProcessError):
+            verify(release())
+    options = runner.call_args.args[0]
+    assert options[options.index('--certificate-identity') + 1] == IDENTITY
+    assert '--certificate-identity-regexp' not in options
+
+
 def test_failed_signature_prevents_all_delivery():
     with patch('prototype_release.subprocess.run', side_effect=subprocess.CalledProcessError(1, 'cosign')) as runner:
         with pytest.raises(subprocess.CalledProcessError):

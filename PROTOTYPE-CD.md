@@ -2,13 +2,15 @@
 
 Канал обслуживает только `https://ochakovo.velikoss.ru` и проект `mosprom-prototype` на 185.174.166.93. Он независим от `deploy.yml`, staging/production и HA-профиля. Patroni, etcd, Xray, Caddy хоста, PostgreSQL и Redis этим каналом не обновляются. Лендинг находится на `/`, игра и кнопка бота — на `/app`.
 
-Доверенная ветка всех трёх репозиториев — **`infra/devops-regional-routing`**. PR и другие ветки не выпускают образы прототипа и не выполняют доставку.
+Доверенная ветка всех трёх репозиториев — **`main`**. PR и другие ветки не выпускают образы прототипа и не выполняют доставку.
 
-1. Успешный frontend CI открывает PR обновления submodule в одноимённую ветку backend. PR нужно проверить и слить.
+1. Успешный frontend CI открывает PR обновления submodule в `main` backend. PR нужно проверить и слить.
 2. После quality, integration и security backend собирает четыре linux/amd64 образа с SBOM/provenance. Trivy High/Critical, включая unfixed, блокирует публикацию. В GHCR поступает тот же OCI-архив, без повторной сборки.
-3. Подпись cosign привязана к `backend/.github/workflows/ci.yml@refs/heads/infra/devops-regional-routing`. Аттестация SLSA v1 включает профиль, исходные SHA, номер и попытку CI в `buildDefinition.externalParameters`. Манифест не допускает смешивания запусков.
+3. Подпись cosign привязана к `backend/.github/workflows/ci.yml@refs/heads/main`. Аттестация SLSA v1 включает профиль, исходные SHA, номер и попытку CI в `buildDefinition.externalParameters`. Манифест не допускает смешивания запусков.
 4. `deliver-prototype` работает в environment `prototype`, только при `PROTOTYPE_CD_ENABLED=true`. Манифест и краткоживущий GITHUB_TOKEN с чтением packages передаются по SSH с закреплённым host key. Токен удаляется вместе с временным Docker config после доставки.
 5. Сервер повторно проверяет подписи/provenance, загружает digest, сохраняет дамп, останавливает бот, выполняет миграции и обновляет только sim/API/bot/web с `--no-deps`. Проверяются readiness, фактический release ID, лендинг, `/app`, процесс бота и настоящий Bot API. Default menu сверяется с `WEBAPP_URL` и при необходимости исправляется на `/app`, без отправки сообщений. Hosted runner дополнительно проверяет публичный HTTPS.
+
+Общий `publish`/`release-pr` отключён при `PROTOTYPE_CD_ENABLED=true`, чтобы один push не выпускал одновременно два разных профиля.
 
 При включённом CD новый push не отменяет начавшийся workflow. Доставки сериализованы. Манифест, предыдущий релиз и дамп находятся в `/opt/mosprom-prototype/cd`; манифест также сохраняется как Actions artifact.
 
@@ -24,7 +26,7 @@
 | `PROTOTYPE_SSH_HOST` | variable | `185.174.166.93` |
 | `PROTOTYPE_SSH_KNOWN_HOSTS` | variable | Проверенная строка `185.174.166.93 ssh-ed25519 …` |
 
-В repository variables backend: `PROTOTYPE_CD_ENABLED=true` после bootstrap. До этого образы собираются и проверяются, доставка выключена. Разрешите environment только доверенную ветку; если тариф поддерживает reviewers, можно включить дополнительное ручное подтверждение.
+В repository variables backend: `PROTOTYPE_CD_ENABLED=true` после bootstrap. При `false` прототип не собирается и не доставляется; общий профиль выпускает отдельный комплект для staging/production. Разрешите environment только ветку `main`; если тариф поддерживает reviewers, можно включить дополнительное ручное подтверждение.
 
 Frontend/backend используют существующие `AUTOMATION_APP_ID` и `AUTOMATION_APP_PRIVATE_KEY`. App достаточно Contents/Pull requests. Backend также использует `FRONTEND_READ_TOKEN` для приватного submodule. GITHUB_TOKEN выдаётся автоматически: отдельный PAT для GHCR и долговременный registry password на сервере не нужны.
 

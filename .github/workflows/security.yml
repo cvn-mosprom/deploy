@@ -3,7 +3,7 @@ on:
   workflow_call:
   pull_request:
   push:
-    branches: [main, 'infra/**']
+    branches: [main]
   schedule:
     - cron: '0 3 * * 1'
   workflow_dispatch:

@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 PROFILE = 'prototype-v1'
-BRANCH = 'infra/devops-regional-routing'
+BRANCH = 'main'
 IDENTITY = f'https://github.com/cvn-mosprom/backend/.github/workflows/ci.yml@refs/heads/{BRANCH}'
 ISSUER = 'https://token.actions.githubusercontent.com'
 NAMES = {'api', 'bot', 'sim', 'web'}
