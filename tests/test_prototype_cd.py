@@ -100,6 +100,15 @@ def test_ephemeral_registry_auth_uses_the_actual_actions_actor(tmp_path):
     assert not list(tmp_path.glob('registry-*'))
 
 
+def test_opaque_jwt_registry_tokens_are_supported():
+    assert receiver.valid_registry_token('header.' + 'a' * 1600 + '.signature-with-dashes')
+
+
+@pytest.mark.parametrize('token', [None, '', 'a' * 8193, 'a' * 20 + '\n', 'a' * 20 + '\0', ' ' * 30])
+def test_oversized_or_control_character_tokens_are_rejected(token):
+    assert not receiver.valid_registry_token(token)
+
+
 def test_compose_commands_have_one_fixed_project_and_configuration():
     command = receiver.dc(Path('/fixed/images.env'), 'up', '-d', '--no-deps', *receiver.SERVICES)
     assert command[:4] == ['docker', 'compose', '--project-name', 'mosprom-prototype']

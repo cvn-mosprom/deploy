@@ -34,6 +34,11 @@ def run(command, *, env, **kwargs):
     return subprocess.run(command, check=True, env=env, **kwargs)
 
 
+def valid_registry_token(token):
+    # GitHub tokens are opaque and may use a JWT format. Never assume a prefix or fixed length.
+    return isinstance(token, str) and 20 <= len(token) <= 8192 and all(33 <= ord(char) <= 126 for char in token)
+
+
 def database_version(*, env):
     return subprocess.check_output(dc(None, 'exec', '-T', 'db', 'psql', '-U', 'mosprom_admin',
         '-d', 'mosprom', '-Atc', 'SELECT version_num FROM alembic_version ORDER BY version_num'),
@@ -148,7 +153,7 @@ def main():
         raise SystemExit('request too large')
     request = json.loads(raw)
     token = request['registryToken']
-    if not isinstance(token, str) or not 20 <= len(token) <= 1000 or not token.replace('_', '').isalnum():
+    if not valid_registry_token(token):
         raise SystemExit('invalid ephemeral registry token')
     registry_user = request['registryUser']
     if not isinstance(registry_user, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.\[\]-]{0,99}', registry_user):
