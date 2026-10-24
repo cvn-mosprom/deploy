@@ -36,7 +36,7 @@ jobs:
           TARGET_ENVIRONMENT: ${{ inputs.environment || 'staging' }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python scripts/select_release.py
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with: {name: selected-release, path: selected.json, retention-days: 14}
   rollout:
     needs: select

@@ -20,6 +20,6 @@ jobs:
       - name: Load test of the current staging revision
         env: {CAPACITY_PROFILE: '${{ inputs.profile }}'}
         run: python3 scripts/run_loadtest.py
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with: {name: load-results, path: load-results.json, retention-days: 30}
