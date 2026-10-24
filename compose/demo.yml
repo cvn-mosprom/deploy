@@ -1,0 +1,56 @@
+# Local jury prototype. Merge with ../backend/docker-compose.yml using scripts/demo.sh.
+services:
+  caddy:
+    image: mosprom-caddy:demo
+    ports: !override ["127.0.0.1:8080:80"]
+    environment:
+      DOMAIN: http://localhost
+    build:
+      args:
+        FRONTEND_REVISION: ${SIM_COMMIT}
+        REGIONAL_ROUTING: "0"
+        VITE_HR_DEMO: "1"
+        VITE_TG_APP_URL: https://t.me/cvnprombot
+  api:
+    image: mosprom-api:demo
+    env_file: !override [{path: "${DEMO_ENV_FILE}", required: true}]
+    environment:
+      APP_ENV: dev
+      DEV_AUTH: "1"
+      DATABASE_URL: postgresql+asyncpg://mosprom_app:${POSTGRES_PASSWORD}@db:5432/mosprom
+      REDIS_URL: redis://redis:6379/0
+      WEBAPP_URL: http://localhost:8080/
+      CORS_ORIGINS: http://localhost:8080
+      BOT_TOKEN: ""
+  migrate:
+    image: mosprom-api:demo
+    env_file: !override [{path: "${DEMO_ENV_FILE}", required: true}]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://mosprom_migrate:${MIGRATION_PASSWORD}@db:5432/mosprom
+  bot:
+    image: mosprom-bot:demo
+    env_file: !override [{path: "${DEMO_ENV_FILE}", required: true}]
+    environment:
+      APP_ENV: dev
+      BOT_TOKEN: ""
+      DATABASE_URL: postgresql+asyncpg://mosprom_app:${POSTGRES_PASSWORD}@db:5432/mosprom
+  db:
+    ports: !reset []
+    environment:
+      POSTGRES_USER: mosprom_admin
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD}
+      POSTGRES_DB: mosprom
+      APP_PASSWORD: ${POSTGRES_PASSWORD}
+      MIGRATION_PASSWORD: ${MIGRATION_PASSWORD}
+    volumes:
+      - "${DEMO_DEPLOY_DIR}/compose/init-db.sql:/docker-entrypoint-initdb.d/10-roles.sql:ro"
+    healthcheck:
+      test: [CMD, pg_isready, -h, "127.0.0.1", -U, mosprom_admin, -d, mosprom]
+  redis:
+    ports: !reset []
+  sim:
+    image: mosprom-sim:demo
+    ports: !reset []
+    env_file: !override [{path: "${DEMO_ENV_FILE}", required: true}]
+  media-sync:
+    image: mosprom-media-sync:demo
