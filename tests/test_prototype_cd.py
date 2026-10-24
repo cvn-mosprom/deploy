@@ -184,7 +184,7 @@ def test_backup_failure_cannot_stop_bot_or_run_migrations(tmp_path):
 
     with patch.object(receiver, 'STATE', tmp_path), \
             patch.object(receiver, 'configuration_digest', return_value=data['configurationSha256']), \
-            patch.object(receiver, 'verify'), patch.object(receiver, 'database_version', return_value='one'), \
+            patch.object(receiver, 'verify'), patch.object(receiver, 'reconcile_telegram_menu'), patch.object(receiver, 'database_version', return_value='one'), \
             patch.object(receiver.subprocess, 'check_output', return_value='amd64'), patch.object(receiver, 'run', side_effect=invoke):
         with pytest.raises(subprocess.CalledProcessError):
             receiver.deploy(data, 'synthetic-test-token')
@@ -206,10 +206,23 @@ def test_failed_migration_only_rolls_back_when_schema_did_not_change(tmp_path, a
 
     with patch.object(receiver, 'STATE', tmp_path), \
             patch.object(receiver, 'configuration_digest', return_value=data['configurationSha256']), \
-            patch.object(receiver, 'verify'), patch.object(receiver, 'database_version', side_effect=['one', after]), \
+            patch.object(receiver, 'verify'), patch.object(receiver, 'reconcile_telegram_menu'), patch.object(receiver, 'database_version', side_effect=['one', after]), \
             patch.object(receiver.subprocess, 'check_output', return_value='amd64'), patch.object(receiver, 'run', side_effect=invoke):
         with pytest.raises(subprocess.CalledProcessError):
             receiver.deploy(data, 'synthetic-test-token')
     assert sum('up' in command for command in calls) == expected_rollbacks
     assert not (tmp_path / 'current.json').exists()
     assert not any('restore' in command for command in calls)
+
+
+def test_external_menu_failure_is_rejected_before_any_docker_change(tmp_path):
+    data = release()
+    with patch.object(receiver, 'STATE', tmp_path), \
+            patch.object(receiver, 'configuration_digest', return_value=data['configurationSha256']), \
+            patch.object(receiver, 'verify'), \
+            patch.object(receiver, 'reconcile_telegram_menu', side_effect=receiver.TelegramMenuError('bot_menu_stale')), \
+            patch.object(receiver, 'run') as command:
+        with pytest.raises(receiver.TelegramMenuError):
+            receiver.deploy(data, 'synthetic-token', 'ci-actor')
+    command.assert_not_called()
+    assert not (tmp_path / 'releases').exists()
