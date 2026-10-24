@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import prototype_receive as receiver
-from prototype_release import IDENTITY, PROFILE, configuration_digest, render, validate, verify
+from prototype_release import IDENTITY, PROFILE, configuration_digest, create, render, validate, verify
 
 
 def release():
@@ -107,6 +107,50 @@ def test_opaque_jwt_registry_tokens_are_supported():
 @pytest.mark.parametrize('token', [None, '', 'a' * 8193, 'a' * 20 + '\n', 'a' * 20 + '\0', ' ' * 30])
 def test_oversized_or_control_character_tokens_are_rejected(token):
     assert not receiver.valid_registry_token(token)
+
+
+def test_operational_revision_gets_a_distinct_immutable_release_id(tmp_path):
+    from prototype_release import CONFIG_FILES
+    data = release()
+    for name in CONFIG_FILES:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(name)
+    artifacts = tmp_path / 'artifacts'
+    artifacts.mkdir()
+    for name, image in data['images'].items():
+        directory = artifacts / name
+        directory.mkdir()
+        (directory / 'image.json').write_text(json.dumps({'name': name, **image}))
+    first = create(artifacts, backend_sha=data['backendSha'], frontend_sha=data['frontendSha'], root=tmp_path, deploy_sha='c' * 40)
+    second = create(artifacts, backend_sha=data['backendSha'], frontend_sha=data['frontendSha'], root=tmp_path, deploy_sha='d' * 40)
+    assert first['images'] == second['images']
+    assert first['releaseId'] != second['releaseId']
+
+
+def test_stale_telegram_menu_is_reconciled_without_sending_messages(tmp_path):
+    from unittest.mock import MagicMock
+    runtime = tmp_path / 'runtime.env'
+    runtime.write_text('BOT_TOKEN=synthetic\nWEBAPP_URL=https://ochakovo.velikoss.ru/app\n')
+    replies = [
+        {'ok': True, 'result': {'username': 'cvnprombot'}},
+        {'ok': True, 'result': {'type': 'web_app', 'web_app': {'url': 'https://old.example/app'}}},
+        {'ok': True, 'result': True},
+        {'ok': True, 'result': {'type': 'web_app', 'web_app': {'url': 'https://ochakovo.velikoss.ru/app'}}},
+    ]
+    opener = MagicMock()
+    responses = []
+    for data in replies:
+        response = MagicMock()
+        response.__enter__.return_value = io.BytesIO(json.dumps(data).encode())
+        responses.append(response)
+    opener.open.side_effect = responses
+    with patch.object(receiver, 'RUNTIME', runtime), patch.object(receiver.urllib.request, 'build_opener', return_value=opener):
+        receiver.reconcile_telegram_menu()
+    requests = [item.args[0] for item in opener.open.call_args_list]
+    assert [item.full_url.rsplit('/', 1)[-1] for item in requests] == [
+        'getMe', 'getChatMenuButton', 'setChatMenuButton', 'getChatMenuButton']
+    assert json.loads(requests[2].data)['menu_button']['web_app']['url'] == 'https://ochakovo.velikoss.ru/app'
 
 
 def test_compose_commands_have_one_fixed_project_and_configuration():

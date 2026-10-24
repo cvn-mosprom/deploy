@@ -50,6 +50,35 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise ValueError('readiness redirect rejected')
 
 
+def reconcile_telegram_menu():
+    runtime = dict(line.partition('=')[::2] for line in RUNTIME.read_text().splitlines()
+                   if line and not line.startswith('#'))
+    expected_url = 'https://ochakovo.velikoss.ru/app'
+    if runtime.get('WEBAPP_URL') != expected_url:
+        raise ValueError('prototype WEBAPP_URL must point to /app')
+    proxy = runtime.get('TELEGRAM_PROXY_URL')
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({'https': proxy} if proxy else {}), NoRedirect())
+
+    def call(method, body=None):
+        request = urllib.request.Request('https://api.telegram.org/bot' + runtime['BOT_TOKEN'] + '/' + method,
+            data=json.dumps(body).encode() if body is not None else None,
+            headers={'Content-Type': 'application/json'})
+        with opener.open(request, timeout=20) as response:
+            data = json.load(response)
+        if not data.get('ok'):
+            raise ValueError('Telegram API rejected menu configuration')
+        return data['result']
+
+    if call('getMe').get('username', '').lower() != 'cvnprombot':
+        raise ValueError('unexpected prototype bot identity')
+    menu = call('getChatMenuButton')
+    if menu.get('web_app', {}).get('url') != expected_url:
+        call('setChatMenuButton', {'menu_button': {'type': 'web_app', 'text': 'Играть',
+                                                  'web_app': {'url': expected_url}}})
+        if call('getChatMenuButton').get('web_app', {}).get('url') != expected_url:
+            raise ValueError('Telegram menu did not converge')
+
+
 def smoke(release_id: str):
     opener = urllib.request.build_opener(NoRedirect())
     origin = 'http://127.0.0.1:18081'
@@ -100,6 +129,7 @@ def deploy(data: dict, token: str, registry_user: str = 'github-actions'):
             current_images = STATE / 'current-images.env'
             if current.exists() and json.loads(current.read_text()) == data:
                 smoke(data['releaseId'])
+                reconcile_telegram_menu()
                 print(json.dumps({'status': 'already-deployed', 'releaseId': data['releaseId']}))
                 return
             for image in data['images'].values():
@@ -128,6 +158,7 @@ def deploy(data: dict, token: str, registry_user: str = 'github-actions'):
                                               text=True, env=env).strip()
                 if bot != 'bot':
                     raise RuntimeError('bot stopped after rollout')
+                reconcile_telegram_menu()
             except Exception:
                 # The exact Alembic version must be unchanged. Never restore a database automatically.
                 if database_version(env=env) == before:
