@@ -70,4 +70,27 @@ Trivy 0.76.1, база от 24 октября 2026, AMD64, без ignore-unfixed
 
 `setNight` теперь сохраняет фазу, но ждёт раскладку мира перед созданием толпы. Существующий `syncWorkers` применяет сохранённую ночную фазу после загрузки мира. Новый регрессионный тест воспроизвёл падение на прежнем коде и прошёл после исправления. В отдельном контролируемом опыте прежняя production-сборка при фиксированной ночной фазе воспроизвела точно такой же стек `walkGrid → getCrowd → setNight`. После возврата исправления production-сборка прошла обе фазы. Браузерный smoke фиксирует часы отдельно на день и ночь и проверяет четыре маршрута в каждой фазе. Бюджет JS/CSS: 565353 из 1500000 gzip-байт. ESLint и svelte-check: без ошибок и предупреждений. Проверки не отключались, retries и новые пропуски не добавлялись.
 
-Исправление frontend `5a4e8af` закреплено в backend `ee0a946`. Устаревший backend-прогон `40129767192` остановлен на integration до публикации и CD; исправленная связка проходит отдельный полный CI.
+Исправление frontend `5a4e8af` вошло в итоговый frontend `98caa33`, закреплённый в backend `dd73560`. Промежуточные прогоны остановлены до публикации и доставки; итоговая связка прошла отдельный полный CI/CD.
+
+## Итоговая приёмка — 24–25 октября 2026, Москва
+
+- [Frontend CI](https://github.com/cvn-mosprom/frontend/actions/runs/40130726389): `98caa33546936abe25277646a61d401a3a1597a5`, success; дневной и ночной браузерные сценарии, без отключения проверок или новых skips.
+- [Backend CI/CD](https://github.com/cvn-mosprom/backend/actions/runs/40130740889): `dd7356081bb2a79aee889ea3c1fea0ba56a66b7c`, success с первой попытки; quality, integration, security, четыре publish-prototype и deliver-prototype. Пропущены только отдельные main-only publish/release-pr.
+- Операционные исходники deploy: `ff943c6dbf67a5c23767e651bfc9d3e0c73cb474`; [validate](https://github.com/cvn-mosprom/deploy/actions/runs/40130840032) и [security](https://github.com/cvn-mosprom/deploy/actions/runs/40130840047) — success, 53 теста deploy.
+
+Release ID: `prototype-dd7356081bb2a79aee889ea3c1fea0ba56a66b7c-40130740889-1-ff943c6dbf67`.
+
+| Образ | Digest итогового выпуска |
+|---|---|
+| api | `sha256:b2ffc57af4ddccf541cc083fb101eaddb8fe8e2f0da1689d86b50978d12e83c3` |
+| bot | `sha256:4ef20f97e5cb965fca400225f50d1ca4fd24b66242d3b78660d44082cf1fc3b7` |
+| sim | `sha256:29ef1c6ec9b0642570facc0490a10e6f4790efd5c4b26f23f883fef39014391c` |
+| web | `sha256:9fa054807db7c5b29e98ef9312bcd23bd4e634edb2c8c0fb510ca02756e239a0` |
+
+Digest сверены с работающими контейнерами. Публичные `/ready`, `/routing/ping` с текущим release ID, `/`, `/app`, перенаправление `/landing`, отказ dev-авторизации и закрытые служебные маршруты проверены. Временные домены отсутствуют в текущих исходниках трёх репозиториев, env-файлах их checkout, серверном runtime и файлах web-образа.
+
+Свежий дамп перед доставкой: 87835 байт, права 0600, `pg_restore --list` успешен. Дополнительная свежая копия полностью восстановлена в `mosprom_restore_verification`; текущий API прошёл readiness и аутентифицированный bootstrap. Временная БД и API удалены, рабочая БД не заменялась. API и bot используют собственные `db`/`redis`, ETCD_ENDPOINTS не задан. Единственный host port прототипа — web `127.0.0.1:18081`; БД и Redis не публикуют порты.
+
+Default menu подтверждено через штатный aiogram SDK и серверный маршрут, затем тремя прямыми TLS-запросами к официальному Telegram API в 20:58:43–20:58:49 UTC 24 октября: `https://ochakovo.velikoss.ru/app`. Webhook отсутствует, отдельный Main Mini App выключен; конфликтов polling не найдено. Локальный demo-bot использует другой токен и не является вторым владельцем этого polling. Кто именно повторно менял прежний URL меню, не установлено; транспортная гипотеза не выдаётся за доказанную причину.
+
+Patroni, etcd и существующий Xray сохранили PID и время запуска; PostgreSQL и Redis прототипа сохранили ID и время запуска. Проверена одна VM. Реальные четыре площадки, межплощадочный failover, PITR и отдельные staging/production этим выпуском не развёртывались.

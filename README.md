@@ -56,7 +56,7 @@ curl -s https://ochakovo.velikoss.ru/ready
 
 Подробно: эксплуатация — [`PROTOTYPE.md`](PROTOTYPE.md), CD из infra-веток — [`PROTOTYPE-CD.md`](PROTOTYPE-CD.md), что проверено на сервере — [`PROTOTYPE-VALIDATION.md`](PROTOTYPE-VALIDATION.md).
 
-**CD прототипа включён и проверен фактически.** [Первый успешный выпуск](https://github.com/cvn-mosprom/backend/actions/runs/40125062014/job/120969767492): backend `86ca5fe`, frontend `7bf8190`, четыре digest из GHCR, подписи cosign и SLSA v1, резервная копия перед миграциями, HTTPS smoke и проверка восстановления в отдельную БД. Повторялся только CD-job, без пересборки образов. Ключ находится в environment `prototype`, допускающем только `infra/devops-regional-routing`; секреты приложения остаются на сервере.
+**CD прототипа включён и проверен фактически.** [Актуальный успешный выпуск](https://github.com/cvn-mosprom/backend/actions/runs/40130740889): backend `dd73560`, frontend `98caa33`, четыре digest из GHCR, подписи cosign и SLSA v1, резервная копия перед миграциями, HTTPS smoke и проверка восстановления в отдельную БД. Весь окончательный workflow завершён с первого запуска; дневной и ночной браузерные сценарии проверяются отдельно. Ключ находится в environment `prototype`, допускающем только `infra/devops-regional-routing`; секреты приложения остаются на сервере.
 
 ## Локальный запуск
 
@@ -200,7 +200,7 @@ python -m venv .venv
 
 | Проверка | Результат |
 |---|---|
-| Frontend (Vitest, ESLint, svelte-check, build, бюджет бандла) | [CI `fade86d`](https://github.com/cvn-mosprom/frontend/actions/runs/40127931290) успешен; 1 явно разрешённый skip, бюджет JS/CSS и браузерный smoke пройдены |
+| Frontend (Vitest, ESLint, svelte-check, build, бюджет бандла) | [CI `98caa33`](https://github.com/cvn-mosprom/frontend/actions/runs/40130726389) успешен; 1 явно разрешённый skip, бюджет JS/CSS и браузерный smoke пройдены |
 | API · бот · контракт · симулятор | 1070 · 149 · 200 · 104 — без неожиданных пропусков, на настоящих PostgreSQL 16, Redis 7 и sim |
 | Docker E2E | 380 — настоящий `HttpGameApi`, live HR, миграции, перезапуски API, sim и БД |
 | Deploy / CD | 53 теста; неверная подпись, смешанные ревизии, ошибка бэкапа и изменение схемы блокируют небезопасную доставку/откат |
