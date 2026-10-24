@@ -34,6 +34,7 @@ services:
       - ${STATE_DIR}/tls/monitor.crt:/tls/monitor.crt:ro
       - ${STATE_DIR}/tls/monitor.key:/tls/monitor.key:ro
   web:
+    group_add: ['20000']
     ports: ['${WG_IP:?private node IP required}:9443:9443']
     volumes:
       - ${STATE_DIR}/tls/ingress.crt:/tls/ingress.crt:ro

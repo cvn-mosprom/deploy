@@ -1,7 +1,7 @@
 all:
   vars:
     ansible_user: ubuntu
-    environment: staging
+    deployment_environment: staging
     routing_zone: game.example.com
     global_domain: staging.game.example.com
     acme_email: ops@example.com

@@ -7,13 +7,13 @@
     - name: Require explicit isolated-staging authorization
       ansible.builtin.assert:
         that:
-          - environment == 'staging'
+          - deployment_environment == 'staging'
           - allow_fault_tests | default(false) | bool
           - isolated_fault_inventory | default(false) | bool
           - not ansible_host.startswith('203.0.113.')
     - name: Select current primary
       ansible.builtin.command:
-        argv: [docker, compose, --env-file, '/srv/mosprom-{{ environment }}/images.env', -f, '/srv/mosprom-{{ environment }}/ha/compose.yml', exec, -T, patroni, /opt/patroni/bin/patronictl, -c, /etc/patroni.yml, list, --format, json]
+        argv: [docker, compose, --env-file, '/srv/mosprom-{{ deployment_environment }}/images.env', -f, '/srv/mosprom-{{ deployment_environment }}/ha/compose.yml', exec, -T, patroni, /opt/patroni/bin/patronictl, -c, /etc/patroni.yml, list, --format, json]
       register: members
       run_once: true
       changed_when: false
@@ -26,12 +26,12 @@
       block:
         - name: Stop the selected primary
           ansible.builtin.command:
-            argv: [docker, compose, --env-file, '/srv/mosprom-{{ environment }}/images.env', -f, '/srv/mosprom-{{ environment }}/ha/compose.yml', stop, patroni]
+            argv: [docker, compose, --env-file, '/srv/mosprom-{{ deployment_environment }}/images.env', -f, '/srv/mosprom-{{ deployment_environment }}/ha/compose.yml', stop, patroni]
           delegate_to: '{{ failed_primary }}'
           changed_when: true
         - name: Wait for one replacement primary
           ansible.builtin.command:
-            argv: [docker, compose, --env-file, '/srv/mosprom-{{ environment }}/images.env', -f, '/srv/mosprom-{{ environment }}/ha/compose.yml', exec, -T, patroni, /opt/patroni/bin/patronictl, -c, /etc/patroni.yml, list, --format, json]
+            argv: [docker, compose, --env-file, '/srv/mosprom-{{ deployment_environment }}/images.env', -f, '/srv/mosprom-{{ deployment_environment }}/ha/compose.yml', exec, -T, patroni, /opt/patroni/bin/patronictl, -c, /etc/patroni.yml, list, --format, json]
           delegate_to: "{{ (groups.mosprom | difference([failed_primary]))[0] }}"
           register: replacement
           retries: 60
@@ -49,7 +49,7 @@
       always:
         - name: Return original node without forcing failback
           ansible.builtin.command:
-            argv: [docker, compose, --env-file, '/srv/mosprom-{{ environment }}/images.env', -f, '/srv/mosprom-{{ environment }}/ha/compose.yml', start, patroni]
+            argv: [docker, compose, --env-file, '/srv/mosprom-{{ deployment_environment }}/images.env', -f, '/srv/mosprom-{{ deployment_environment }}/ha/compose.yml', start, patroni]
           delegate_to: '{{ failed_primary }}'
           changed_when: true
     - name: Test loss of one API region
@@ -57,7 +57,7 @@
       block:
         - name: Stop API on first region
           ansible.builtin.command:
-            argv: [docker, compose, --env-file, '/srv/mosprom-{{ environment }}/.env', --env-file, '/srv/mosprom-{{ environment }}/images.env', -f, '/srv/mosprom-{{ environment }}/current-config/compose/compose.yml', -f, '/srv/mosprom-{{ environment }}/current-config/compose/ha.yml', stop, api]
+            argv: [docker, compose, --env-file, '/srv/mosprom-{{ deployment_environment }}/.env', --env-file, '/srv/mosprom-{{ deployment_environment }}/images.env', -f, '/srv/mosprom-{{ deployment_environment }}/current-config/compose/compose.yml', -f, '/srv/mosprom-{{ deployment_environment }}/current-config/compose/ha.yml', stop, api]
           changed_when: true
         - name: Verify failed region is removed from LoadBalancer health
           ansible.builtin.uri:
@@ -78,7 +78,7 @@
       always:
         - name: Restart only the stopped API
           ansible.builtin.command:
-            argv: [docker, compose, --env-file, '/srv/mosprom-{{ environment }}/.env', --env-file, '/srv/mosprom-{{ environment }}/images.env', -f, '/srv/mosprom-{{ environment }}/current-config/compose/compose.yml', -f, '/srv/mosprom-{{ environment }}/current-config/compose/ha.yml', start, api]
+            argv: [docker, compose, --env-file, '/srv/mosprom-{{ deployment_environment }}/.env', --env-file, '/srv/mosprom-{{ deployment_environment }}/images.env', -f, '/srv/mosprom-{{ deployment_environment }}/current-config/compose/compose.yml', -f, '/srv/mosprom-{{ deployment_environment }}/current-config/compose/ha.yml', start, api]
           changed_when: true
     - name: Find Redis primary through authenticated Sentinel
       ansible.builtin.command:
@@ -86,9 +86,9 @@
           - docker
           - compose
           - --env-file
-          - '/srv/mosprom-{{ environment }}/images.env'
+          - '/srv/mosprom-{{ deployment_environment }}/images.env'
           - -f
-          - '/srv/mosprom-{{ environment }}/ha/compose.yml'
+          - '/srv/mosprom-{{ deployment_environment }}/ha/compose.yml'
           - exec
           - -T
           - sentinel
@@ -111,12 +111,12 @@
       block:
         - name: Stop Redis primary only
           ansible.builtin.command:
-            argv: [docker, compose, --env-file, '/srv/mosprom-{{ environment }}/images.env', -f, '/srv/mosprom-{{ environment }}/ha/compose.yml', stop, redis]
+            argv: [docker, compose, --env-file, '/srv/mosprom-{{ deployment_environment }}/images.env', -f, '/srv/mosprom-{{ deployment_environment }}/ha/compose.yml', stop, redis]
           delegate_to: '{{ failed_redis }}'
           changed_when: true
         - name: Wait for Sentinel failover
           ansible.builtin.command:
-            argv: [docker, compose, --env-file, '/srv/mosprom-{{ environment }}/images.env', -f, '/srv/mosprom-{{ environment }}/ha/compose.yml', exec, -T, sentinel, sh, -ec, 'export REDISCLI_AUTH; REDISCLI_AUTH="$(sed -n "s/^requirepass //p" /config/sentinel.conf)"; exec redis-cli --tls --cacert /tls/ca.crt -h {{ hostvars[groups.redis_nodes[0]].wg_ip }} -p 26379 SENTINEL get-master-addr-by-name mosprom']
+            argv: [docker, compose, --env-file, '/srv/mosprom-{{ deployment_environment }}/images.env', -f, '/srv/mosprom-{{ deployment_environment }}/ha/compose.yml', exec, -T, sentinel, sh, -ec, 'export REDISCLI_AUTH; REDISCLI_AUTH="$(sed -n "s/^requirepass //p" /config/sentinel.conf)"; exec redis-cli --tls --cacert /tls/ca.crt -h {{ hostvars[groups.redis_nodes[0]].wg_ip }} -p 26379 SENTINEL get-master-addr-by-name mosprom']
           delegate_to: '{{ groups.redis_nodes[0] }}'
           register: redis_replacement
           retries: 30
@@ -127,7 +127,7 @@
       always:
         - name: Return Redis node to replication
           ansible.builtin.command:
-            argv: [docker, compose, --env-file, '/srv/mosprom-{{ environment }}/images.env', -f, '/srv/mosprom-{{ environment }}/ha/compose.yml', start, redis]
+            argv: [docker, compose, --env-file, '/srv/mosprom-{{ deployment_environment }}/images.env', -f, '/srv/mosprom-{{ deployment_environment }}/ha/compose.yml', start, redis]
           delegate_to: '{{ failed_redis }}'
           changed_when: true
     - name: Isolate one complete site from the private mesh with a timed safety recovery

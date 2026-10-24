@@ -7,7 +7,7 @@
     - name: Require inventory, vaulted credentials and real addresses
       ansible.builtin.assert:
         that:
-          - environment in ['staging', 'production']
+          - deployment_environment in ['staging', 'production']
           - not ansible_host.startswith('203.0.113.')
           - vault_wireguard_private_key is defined
           - vault_wireguard_public_keys is defined
@@ -38,7 +38,7 @@
         gid: 20000
     - name: Create state directories
       ansible.builtin.file:
-        path: '/srv/mosprom-{{ environment }}/{{ item }}'
+        path: '/srv/mosprom-{{ deployment_environment }}/{{ item }}'
         state: directory
         mode: '0750'
         group: mosprom-tls
@@ -46,7 +46,7 @@
     - name: Provision certificates with restricted group access
       ansible.builtin.copy:
         content: '{{ item.value }}'
-        dest: '/srv/mosprom-{{ environment }}/tls/{{ item.key }}'
+        dest: '/srv/mosprom-{{ deployment_environment }}/tls/{{ item.key }}'
         owner: root
         group: mosprom-tls
         mode: '0640'
@@ -104,34 +104,34 @@
     - name: Initialize public catalogue without overwriting an existing rolling state
       ansible.builtin.copy:
         src: '{{ runtime_directory }}/routing/regions.json'
-        dest: '/srv/mosprom-{{ environment }}/routing/regions.json'
+        dest: '/srv/mosprom-{{ deployment_environment }}/routing/regions.json'
         mode: '0640'
         group: mosprom-tls
         force: false
     - name: Install private monitoring targets
       ansible.builtin.copy:
         src: '{{ runtime_directory }}/prometheus-targets.json'
-        dest: '/srv/mosprom-{{ environment }}/prometheus-targets.json'
+        dest: '/srv/mosprom-{{ deployment_environment }}/prometheus-targets.json'
         mode: '0640'
         group: mosprom-tls
     - name: Provision Alertmanager receiver
       ansible.builtin.template:
         src: alertmanager.yml.j2
-        dest: '/srv/mosprom-{{ environment }}/alertmanager.yml'
+        dest: '/srv/mosprom-{{ deployment_environment }}/alertmanager.yml'
         mode: '0640'
         group: mosprom-tls
       no_log: true
     - name: Provision receiver token
       ansible.builtin.copy:
         content: '{{ vault_alert_webhook_token }}'
-        dest: '/srv/mosprom-{{ environment }}/alert-webhook-token'
+        dest: '/srv/mosprom-{{ deployment_environment }}/alert-webhook-token'
         mode: '0640'
         group: mosprom-tls
       no_log: true
     - name: Render HA services
       ansible.builtin.template:
         src: '{{ item }}.j2'
-        dest: '/srv/mosprom-{{ environment }}/ha/{{ item }}'
+        dest: '/srv/mosprom-{{ deployment_environment }}/ha/{{ item }}'
         mode: '0640'
         group: mosprom-tls
       loop: [compose.yml, patroni.yml, haproxy.cfg, pgbouncer.ini, redis.conf, sentinel.conf, pgbackrest.conf]
@@ -139,36 +139,44 @@
     - name: Initialize Sentinel writable configuration only once
       ansible.builtin.copy:
         remote_src: true
-        src: '/srv/mosprom-{{ environment }}/ha/sentinel.conf'
-        dest: '/srv/mosprom-{{ environment }}/sentinel/sentinel.conf'
+        src: '/srv/mosprom-{{ deployment_environment }}/ha/sentinel.conf'
+        dest: '/srv/mosprom-{{ deployment_environment }}/sentinel/sentinel.conf'
         force: false
         mode: '0600'
       when: inventory_hostname in groups['redis_nodes']
       no_log: true
-    - name: Render runtime environment
+    - name: Render runtime deployment_environment
       ansible.builtin.template:
         src: runtime.env.j2
-        dest: '/srv/mosprom-{{ environment }}/.env'
+        dest: '/srv/mosprom-{{ deployment_environment }}/.env'
         mode: '0600'
       no_log: true
     - name: Write immutable image variables and manifest
       ansible.builtin.copy:
         src: '{{ item.src }}'
-        dest: '/srv/mosprom-{{ environment }}/{{ item.dest }}'
+        dest: '/srv/mosprom-{{ deployment_environment }}/{{ item.dest }}'
         mode: '0600'
       loop:
         - {src: '{{ rendered_images }}', dest: images.env}
         - {src: '{{ manifest_path }}', dest: candidate.json}
     - name: Create PostgreSQL data directory
       ansible.builtin.file:
-        path: '/srv/mosprom-{{ environment }}/postgres'
+        path: '/srv/mosprom-{{ deployment_environment }}/postgres'
         state: directory
         owner: '999'
         group: '999'
         mode: '0700'
+    - name: Create writable data directory for the unprivileged DCS
+      ansible.builtin.file:
+        path: '/srv/mosprom-{{ deployment_environment }}/etcd'
+        state: directory
+        owner: '10005'
+        group: '10005'
+        mode: '0700'
+      when: inventory_hostname in groups['dcs']
     - name: Start quorum before database bootstrap
       ansible.builtin.command:
-        argv: [docker, compose, --env-file, '/srv/mosprom-{{ environment }}/images.env', -f, '/srv/mosprom-{{ environment }}/ha/compose.yml', up, -d, etcd]
+        argv: [docker, compose, --env-file, '/srv/mosprom-{{ deployment_environment }}/images.env', -f, '/srv/mosprom-{{ deployment_environment }}/ha/compose.yml', up, -d, etcd]
       when: inventory_hostname in groups['dcs']
       changed_when: true
   handlers:
@@ -183,7 +191,7 @@
   tasks:
     - name: Provision least-privilege etcd identities
       ansible.builtin.script:
-        cmd: '../scripts/etcd_auth.sh /srv/mosprom-{{ environment }} {{ environment }}'
+        cmd: '../scripts/etcd_auth.sh /srv/mosprom-{{ deployment_environment }} {{ deployment_environment }}'
       no_log: true
 
 - name: Start replicated stateful services
@@ -192,11 +200,11 @@
   tasks:
     - name: Start Patroni PgBouncer and Redis services
       ansible.builtin.command:
-        argv: [docker, compose, --env-file, '/srv/mosprom-{{ environment }}/images.env', -f, '/srv/mosprom-{{ environment }}/ha/compose.yml', up, -d]
+        argv: [docker, compose, --env-file, '/srv/mosprom-{{ deployment_environment }}/images.env', -f, '/srv/mosprom-{{ deployment_environment }}/ha/compose.yml', up, -d]
       changed_when: true
     - name: Wait for one elected PostgreSQL primary
       ansible.builtin.command:
-        argv: [docker, compose, --env-file, '/srv/mosprom-{{ environment }}/images.env', -f, '/srv/mosprom-{{ environment }}/ha/compose.yml', exec, -T, patroni, /opt/patroni/bin/patronictl, -c, /etc/patroni.yml, list, --format, json]
+        argv: [docker, compose, --env-file, '/srv/mosprom-{{ deployment_environment }}/images.env', -f, '/srv/mosprom-{{ deployment_environment }}/ha/compose.yml', exec, -T, patroni, /opt/patroni/bin/patronictl, -c, /etc/patroni.yml, list, --format, json]
       register: cluster_members
       run_once: true
       retries: 60
@@ -205,7 +213,7 @@
       changed_when: false
     - name: Create restricted database roles on the primary
       ansible.builtin.command:
-        argv: [docker, compose, --env-file, '/srv/mosprom-{{ environment }}/images.env', -f, '/srv/mosprom-{{ environment }}/ha/compose.yml', exec, -T, patroni, psql, -v, ON_ERROR_STOP=1, -U, postgres, -d, postgres]
+        argv: [docker, compose, --env-file, '/srv/mosprom-{{ deployment_environment }}/images.env', -f, '/srv/mosprom-{{ deployment_environment }}/ha/compose.yml', exec, -T, patroni, psql, -v, ON_ERROR_STOP=1, -U, postgres, -d, postgres]
         stdin: "{{ lookup('template', 'templates/roles.sql.j2') }}"
       delegate_to: "{{ (cluster_members.stdout | from_json | selectattr('Role', 'equalto', 'Leader') | first)['Member'] }}"
       run_once: true
@@ -213,7 +221,7 @@
       changed_when: true
     - name: Initialize encrypted backup stanza on the primary
       ansible.builtin.command:
-        argv: [docker, compose, --env-file, '/srv/mosprom-{{ environment }}/images.env', -f, '/srv/mosprom-{{ environment }}/ha/compose.yml', exec, -T, patroni, pgbackrest, --stanza=mosprom, stanza-create]
+        argv: [docker, compose, --env-file, '/srv/mosprom-{{ deployment_environment }}/images.env', -f, '/srv/mosprom-{{ deployment_environment }}/ha/compose.yml', exec, -T, patroni, pgbackrest, --stanza=mosprom, stanza-create]
       delegate_to: "{{ (cluster_members.stdout | from_json | selectattr('Role', 'equalto', 'Leader') | first)['Member'] }}"
       run_once: true
       changed_when: true

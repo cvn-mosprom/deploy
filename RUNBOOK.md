@@ -29,7 +29,7 @@ Grafana доступна на loopback:3000; используйте SSH tunnel �
 
 ## Распределённый профиль
 
-Подготовка и сертификаты описаны в [docs/ha.md](docs/ha.md). Внешний LoadBalancer предоставляется инфраструктурой, проверяет `/lb-ready` и исключает draining/неработающие площадки. Общий домен и региональные адреса обслуживают HTTPS; региональный DNS не должен возвращать другую площадку.
+Подготовка и сертификаты описаны в [docs/ha.md](docs/ha.md). Внешний LoadBalancer предоставляется инфраструктурой, проверяет `/lb-ready` и исключает draining/неработающие площадки. При смешанных web-версиях необходима affinity для HTML/статических ресурсов либо общий origin неизменяемых ассетов с сохранением предыдущих релизов (подробнее в docs/ha.md). Общий домен и региональные адреса обслуживают HTTPS; региональный DNS не должен возвращать другую площадку.
 
 ```sh
 python scripts/rollout.py releases/<id>.json \
@@ -57,3 +57,14 @@ python scripts/rollout.py releases/<id>.json \
 Контролируйте API error rate/p95, клиентскую HTTPS-задержку, частоту выбора LoadBalancer, готовность регионов, роль Patroni, свободную RAM/диск, CPU контейнеров и возраст резервной копии. Тестовое оповещение сначала отправляйте в изолированный receiver staging. Сбои плановых security workflows видны в GitHub Actions; не отключайте scanner ради зелёного статуса.
 
 Справочники восстановления: [restic restore](https://restic.readthedocs.io/en/stable/050_restore.html), [pgBackRest restore и PITR](https://pgbackrest.org/command.html#command-restore).
+
+## Локальная проверка production web
+
+После сборки web-образа и установки frontend-зависимостей и Chromium выполните из deploy:
+
+```sh
+python scripts/check_web.py --web-image <локальный-тег-или-digest> \
+  --frontend-workspace /absolute/path/to/frontend/web
+```
+
+Проверка запускает отдельный Caddy без root с временным localhost TLS-сертификатом, проверяет запуск JavaScript трёх страниц, CSP и анонимные пробы четырёх разрешённых региональных origin. Региональные ответы моделируются Playwright; реальные DNS, сертификаты и CORS площадок проверяются отдельно на staging. Временный контейнер и ключ удаляются автоматически.

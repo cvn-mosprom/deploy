@@ -1,0 +1,16 @@
+- name: Render every HA node configuration without contacting servers
+  hosts: mosprom
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Temporary render directories
+      ansible.builtin.file:
+        path: '{{ render_root }}/{{ inventory_hostname }}'
+        state: directory
+        mode: '0700'
+    - name: Render deployment templates with synthetic example values
+      ansible.builtin.template:
+        src: '{{ playbook_dir }}/../ansible/templates/{{ item }}.j2'
+        dest: '{{ render_root }}/{{ inventory_hostname }}/{{ item }}'
+        mode: '0600'
+      loop: [compose.yml, patroni.yml, haproxy.cfg, pgbouncer.ini, redis.conf, sentinel.conf, pgbackrest.conf, runtime.env, roles.sql, wg0.conf, alertmanager.yml]

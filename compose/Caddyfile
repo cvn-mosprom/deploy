@@ -1,3 +1,7 @@
+{
+  admin off
+  persist_config off
+}
 (acme) {
   tls {$ACME_EMAIL}
 }
@@ -9,12 +13,12 @@
 }
 {$DOMAIN} {
   import {$TLS_SNIPPET:acme}
+  import /etc/caddy/content-security-policy.caddy
   encode zstd gzip
   header {
     Strict-Transport-Security "max-age=31536000"
     X-Content-Type-Options nosniff
     Referrer-Policy strict-origin-when-cross-origin
-    Content-Security-Policy "default-src 'self'; script-src 'self' https://telegram.org 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.telegram.org https://*.t.me; media-src 'self' blob:; font-src 'self'; connect-src 'self' https://*.{$ROUTING_ZONE}; worker-src 'self' blob:; frame-ancestors 'self' https://web.telegram.org https://*.telegram.org; base-uri 'self'; object-src 'none'"
   }
   log {
     format filter {

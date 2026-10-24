@@ -1,6 +1,6 @@
 [global]
 repo1-type=s3
-repo1-path=/{{ environment }}
+repo1-path=/{{ deployment_environment }}
 repo1-s3-endpoint={{ backup_s3_endpoint }}
 repo1-s3-bucket={{ backup_s3_bucket }}
 repo1-s3-region={{ backup_s3_region | default('us-east-1') }}

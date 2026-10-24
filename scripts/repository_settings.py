@@ -18,7 +18,7 @@ def main():
     parser.add_argument("--owner", required=True, help="GitHub collaborator login")
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
-    requirements = {"frontend": ["quality", "security"], "backend": ["quality", "integration", "security"], "deploy": ["validate", "security"]}
+    requirements = {"frontend": ["quality", "security / security"], "backend": ["quality", "integration", "security / security"], "deploy": ["validate", "security"]}
     for repository, contexts in requirements.items():
         repo = f"cvn-mosprom/{repository}"
         permissions = gh(f"repos/{repo}/collaborators/{args.owner}/permission")
