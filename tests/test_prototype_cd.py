@@ -148,11 +148,11 @@ def test_stale_telegram_menu_is_reconciled_without_sending_messages(tmp_path):
     with patch.object(receiver, 'RUNTIME', runtime), patch.object(receiver.urllib.request, 'build_opener', return_value=opener):
         receiver.reconcile_telegram_menu()
     requests = [item.args[0] for item in opener.open.call_args_list]
-    assert [item.full_url.rsplit('/', 1)[-1] for item in requests] == [
+    assert [item.full_url.rsplit('/', 1)[-1].split('?', 1)[0] for item in requests] == [
         'getMe', 'getChatMenuButton', 'setChatMenuButton', 'getChatMenuButton']
-    from urllib.parse import parse_qs
-    assert all(item.get_method() == 'POST' for item in requests)
-    assert json.loads(parse_qs(requests[2].data.decode())['menu_button'][0])['web_app']['url'] == 'https://ochakovo.velikoss.ru/app'
+    from urllib.parse import parse_qs, urlsplit
+    assert all(item.get_method() == 'POST' and item.data == b'' for item in requests)
+    assert json.loads(parse_qs(urlsplit(requests[2].full_url).query)['menu_button'][0])['web_app']['url'] == 'https://ochakovo.velikoss.ru/app'
 
 
 def test_compose_commands_have_one_fixed_project_and_configuration():
