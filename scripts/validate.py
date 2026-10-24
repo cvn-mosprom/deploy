@@ -26,7 +26,7 @@ def main():
     for name, image in lock.items():
         if not re.search(r"@sha256:[a-f0-9]{64}$", image):
             raise SystemExit(f"mutable image {name}")
-    if set(lock) != {"python", "node", "postgres", "redis", "caddy", "haproxy", "pgbouncer", "prometheus", "grafana", "alertmanager", "etcd"}:
+    if set(lock) != {"python", "node", "postgres", "redis", "golang", "alpine", "haproxy", "pgbouncer", "prometheus", "grafana", "alertmanager", "etcd"}:
         raise SystemExit("image lock incomplete")
     print("YAML, release manifests, workflow pins and external image locks validated")
 
