@@ -3,6 +3,9 @@ set -euo pipefail
 infra_root="$(cd "$(dirname "$0")/.." && pwd)"
 export PROTOTYPE_ENV_FILE="${PROTOTYPE_ENV_FILE:-/opt/mosprom-prototype/runtime.env}"
 command=(docker compose --project-name mosprom-prototype --env-file "$PROTOTYPE_ENV_FILE" -f "$infra_root/compose/prototype.yml")
+if [[ -f /opt/mosprom-prototype/cd/current-images.env ]]; then
+  command=(docker compose --project-name mosprom-prototype --env-file "$PROTOTYPE_ENV_FILE" --env-file /opt/mosprom-prototype/cd/current-images.env -f "$infra_root/compose/prototype.yml")
+fi
 case "${1:-status}" in
   up) "${command[@]}" config --quiet; "${command[@]}" up -d --no-build --wait --wait-timeout 180 ;;
   stop) "${command[@]}" stop ;;
