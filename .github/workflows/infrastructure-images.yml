@@ -59,7 +59,7 @@ jobs:
           permission-pull-requests: write
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with: {token: '${{ steps.app.outputs.token }}', persist-credentials: false}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with: {pattern: 'infra-*', path: artifacts}
       - name: Propose the complete infrastructure lock
         env: {GH_TOKEN: '${{ steps.app.outputs.token }}'}
