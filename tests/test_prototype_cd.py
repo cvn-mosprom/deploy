@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import prototype_receive as receiver
-from prototype_release import IDENTITY, PROFILE, configuration_digest, render, validate, verify
+from prototype_release import IDENTITY, PROFILE, configuration_digest, create, render, validate, verify
 
 
 def release():
@@ -109,6 +109,52 @@ def test_oversized_or_control_character_tokens_are_rejected(token):
     assert not receiver.valid_registry_token(token)
 
 
+def test_operational_revision_gets_a_distinct_immutable_release_id(tmp_path):
+    from prototype_release import CONFIG_FILES
+    data = release()
+    for name in CONFIG_FILES:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(name)
+    artifacts = tmp_path / 'artifacts'
+    artifacts.mkdir()
+    for name, image in data['images'].items():
+        directory = artifacts / name
+        directory.mkdir()
+        (directory / 'image.json').write_text(json.dumps({'name': name, **image}))
+    first = create(artifacts, backend_sha=data['backendSha'], frontend_sha=data['frontendSha'], root=tmp_path, deploy_sha='c' * 40)
+    second = create(artifacts, backend_sha=data['backendSha'], frontend_sha=data['frontendSha'], root=tmp_path, deploy_sha='d' * 40)
+    assert first['images'] == second['images']
+    assert first['releaseId'] != second['releaseId']
+
+
+def test_stale_telegram_menu_is_reconciled_without_sending_messages(tmp_path):
+    from unittest.mock import MagicMock
+    runtime = tmp_path / 'runtime.env'
+    runtime.write_text('BOT_TOKEN=synthetic\nWEBAPP_URL=https://ochakovo.velikoss.ru/app\n')
+    replies = [
+        {'ok': True, 'result': {'username': 'cvnprombot'}},
+        {'ok': True, 'result': {'type': 'web_app', 'web_app': {'url': 'https://old.example/app'}}},
+        {'ok': True, 'result': True},
+        {'ok': True, 'result': {'type': 'web_app', 'web_app': {'url': 'https://ochakovo.velikoss.ru/app'}}},
+    ]
+    opener = MagicMock()
+    responses = []
+    for data in replies:
+        response = MagicMock()
+        response.__enter__.return_value = io.BytesIO(json.dumps(data).encode())
+        responses.append(response)
+    opener.open.side_effect = responses
+    with patch.object(receiver, 'RUNTIME', runtime), patch.object(receiver.urllib.request, 'build_opener', return_value=opener):
+        receiver.reconcile_telegram_menu()
+    requests = [item.args[0] for item in opener.open.call_args_list]
+    assert [item.full_url.rsplit('/', 1)[-1].split('?', 1)[0] for item in requests] == [
+        'getMe', 'getChatMenuButton', 'setChatMenuButton', 'getChatMenuButton']
+    from urllib.parse import parse_qs, urlsplit
+    assert all(item.get_method() == 'POST' and not urlsplit(item.full_url).query for item in requests)
+    assert json.loads(parse_qs(requests[2].data.decode())['menu_button'][0])['web_app']['url'] == 'https://ochakovo.velikoss.ru/app'
+
+
 def test_compose_commands_have_one_fixed_project_and_configuration():
     command = receiver.dc(Path('/fixed/images.env'), 'up', '-d', '--no-deps', *receiver.SERVICES)
     assert command[:4] == ['docker', 'compose', '--project-name', 'mosprom-prototype']
@@ -138,7 +184,7 @@ def test_backup_failure_cannot_stop_bot_or_run_migrations(tmp_path):
 
     with patch.object(receiver, 'STATE', tmp_path), \
             patch.object(receiver, 'configuration_digest', return_value=data['configurationSha256']), \
-            patch.object(receiver, 'verify'), patch.object(receiver, 'database_version', return_value='one'), \
+            patch.object(receiver, 'verify'), patch.object(receiver, 'reconcile_telegram_menu'), patch.object(receiver, 'database_version', return_value='one'), \
             patch.object(receiver.subprocess, 'check_output', return_value='amd64'), patch.object(receiver, 'run', side_effect=invoke):
         with pytest.raises(subprocess.CalledProcessError):
             receiver.deploy(data, 'synthetic-test-token')
@@ -160,10 +206,46 @@ def test_failed_migration_only_rolls_back_when_schema_did_not_change(tmp_path, a
 
     with patch.object(receiver, 'STATE', tmp_path), \
             patch.object(receiver, 'configuration_digest', return_value=data['configurationSha256']), \
-            patch.object(receiver, 'verify'), patch.object(receiver, 'database_version', side_effect=['one', after]), \
+            patch.object(receiver, 'verify'), patch.object(receiver, 'reconcile_telegram_menu'), patch.object(receiver, 'database_version', side_effect=['one', after]), \
             patch.object(receiver.subprocess, 'check_output', return_value='amd64'), patch.object(receiver, 'run', side_effect=invoke):
         with pytest.raises(subprocess.CalledProcessError):
             receiver.deploy(data, 'synthetic-test-token')
     assert sum('up' in command for command in calls) == expected_rollbacks
     assert not (tmp_path / 'current.json').exists()
     assert not any('restore' in command for command in calls)
+
+
+def test_external_menu_failure_is_rejected_before_any_docker_change(tmp_path):
+    data = release()
+    with patch.object(receiver, 'STATE', tmp_path), \
+            patch.object(receiver, 'configuration_digest', return_value=data['configurationSha256']), \
+            patch.object(receiver, 'verify'), \
+            patch.object(receiver, 'reconcile_telegram_menu', side_effect=receiver.TelegramMenuError('bot_menu_stale')), \
+            patch.object(receiver, 'run') as command:
+        with pytest.raises(receiver.TelegramMenuError):
+            receiver.deploy(data, 'synthetic-token', 'ci-actor')
+    command.assert_not_called()
+    assert not (tmp_path / 'releases').exists()
+
+
+def test_true_telegram_acknowledgement_cannot_hide_an_unchanged_menu(tmp_path):
+    from unittest.mock import MagicMock
+    runtime = tmp_path / 'runtime.env'
+    runtime.write_text('BOT_TOKEN=synthetic\nWEBAPP_URL=https://ochakovo.velikoss.ru/app\n')
+    stale = {'ok': True, 'result': {'type': 'web_app', 'web_app': {'url': 'https://old.example/app'}}}
+    replies = [{'ok': True, 'result': {'username': 'cvnprombot'}}, stale,
+               {'ok': True, 'result': True}, *[stale] * 4]
+    opener = MagicMock()
+    responses = []
+    for data in replies:
+        response = MagicMock()
+        response.__enter__.return_value = io.BytesIO(json.dumps(data).encode())
+        responses.append(response)
+    opener.open.side_effect = responses
+    with patch.object(receiver, 'RUNTIME', runtime), \
+            patch.object(receiver.urllib.request, 'build_opener', return_value=opener), \
+            patch.object(receiver.time, 'sleep') as delay:
+        with pytest.raises(receiver.TelegramMenuError, match='bot_menu_stale'):
+            receiver.reconcile_telegram_menu()
+    assert opener.open.call_count == 7
+    assert delay.call_count == 3

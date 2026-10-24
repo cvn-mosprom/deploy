@@ -12,6 +12,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+import urllib.parse
 from pathlib import Path
 
 from prototype_release import configuration_digest, render, validate, verify
@@ -48,6 +49,45 @@ def database_version(*, env):
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise ValueError('readiness redirect rejected')
+
+
+class TelegramMenuError(ValueError):
+    """Fixed diagnostic codes only, never provider URLs or tokens."""
+
+
+def reconcile_telegram_menu():
+    runtime = dict(line.partition('=')[::2] for line in RUNTIME.read_text().splitlines()
+                   if line and not line.startswith('#'))
+    expected_url = 'https://ochakovo.velikoss.ru/app'
+    if runtime.get('WEBAPP_URL') != expected_url:
+        raise TelegramMenuError('bot_url_config')
+    proxy = runtime.get('TELEGRAM_PROXY_URL')
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({'https': proxy} if proxy else {}), NoRedirect())
+
+    def call(method, body=None):
+        parameters = {key: json.dumps(value) if isinstance(value, (dict, list)) else value
+                      for key, value in (body or {}).items()}
+        request = urllib.request.Request('https://api.telegram.org/bot' + runtime['BOT_TOKEN'] + '/' + method,
+            data=urllib.parse.urlencode(parameters).encode(),
+            headers={'Content-Type': 'application/x-www-form-urlencoded', 'Cache-Control': 'no-store'})
+        with opener.open(request, timeout=20) as response:
+            data = json.load(response)
+        if not data.get('ok'):
+            raise TelegramMenuError('bot_api_rejected')
+        return data['result']
+
+    if call('getMe').get('username', '').lower() != 'cvnprombot':
+        raise TelegramMenuError('bot_identity')
+    menu = call('getChatMenuButton')
+    if menu.get('web_app', {}).get('url') != expected_url:
+        call('setChatMenuButton', {'menu_button': {'type': 'web_app', 'text': 'Играть',
+                                                  'web_app': {'url': expected_url}}})
+        for attempt in range(4):
+            if call('getChatMenuButton').get('web_app', {}).get('url') == expected_url:
+                return
+            if attempt < 3:
+                time.sleep(2)
+        raise TelegramMenuError('bot_menu_stale')
 
 
 def smoke(release_id: str):
@@ -88,6 +128,8 @@ def deploy(data: dict, token: str, registry_user: str = 'github-actions'):
             env = {'PATH': '/usr/local/bin:/usr/bin:/bin', 'HOME': '/root', 'DOCKER_CONFIG': temporary,
                    'PROTOTYPE_ENV_FILE': str(RUNTIME)}
             verify(data, env=env)
+            # Reject external Bot API/configuration failures while the current application still runs.
+            reconcile_telegram_menu()
             release_dir = STATE / 'releases' / data['releaseId']
             release_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
             manifest = release_dir / 'release.json'
@@ -100,6 +142,7 @@ def deploy(data: dict, token: str, registry_user: str = 'github-actions'):
             current_images = STATE / 'current-images.env'
             if current.exists() and json.loads(current.read_text()) == data:
                 smoke(data['releaseId'])
+                reconcile_telegram_menu()
                 print(json.dumps({'status': 'already-deployed', 'releaseId': data['releaseId']}))
                 return
             for image in data['images'].values():
@@ -128,6 +171,7 @@ def deploy(data: dict, token: str, registry_user: str = 'github-actions'):
                                               text=True, env=env).strip()
                 if bot != 'bot':
                     raise RuntimeError('bot stopped after rollout')
+                reconcile_telegram_menu()
             except Exception:
                 # The exact Alembic version must be unchanged. Never restore a database automatically.
                 if database_version(env=env) == before:
@@ -162,7 +206,8 @@ def main():
         deploy(request['release'], token, registry_user)
     except Exception as error:
         # Do not serialize the input, environment or subprocess output, which may contain credentials.
-        print('prototype deployment failed: ' + type(error).__name__, file=sys.stderr)
+        reason = str(error) if isinstance(error, TelegramMenuError) else type(error).__name__
+        print('prototype deployment failed: ' + reason, file=sys.stderr)
         raise SystemExit(1) from None
 
 

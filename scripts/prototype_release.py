@@ -37,7 +37,8 @@ def validate(data: dict) -> dict:
     for name in ('runId', 'runAttempt'):
         if not re.fullmatch(r'[1-9][0-9]{0,14}', data.get(name, '')):
             raise ValueError('invalid build run coordinates')
-    if data.get('releaseId') != 'prototype-' + data['backendSha'] + '-' + data['runId'] + '-' + data['runAttempt']:
+    base_id = 'prototype-' + data['backendSha'] + '-' + data['runId'] + '-' + data['runAttempt']
+    if data.get('releaseId') not in (base_id, base_id + '-' + data['deploySha'][:12]):
         raise ValueError('release id must identify the backend commit')
     if not re.fullmatch(r'[0-9a-f]{64}', data.get('configurationSha256', '')):
         raise ValueError('configuration hash required')
@@ -89,7 +90,7 @@ def create(artifacts: Path, *, backend_sha: str, frontend_sha: str, root: Path, 
         images[name] = image
     first = next(iter(images.values()))
     run_id, attempt = first['runId'], first['runAttempt']
-    return validate({'version': 1, 'profile': PROFILE, 'releaseId': 'prototype-' + backend_sha + '-' + run_id + '-' + attempt,
+    return validate({'version': 1, 'profile': PROFILE, 'releaseId': 'prototype-' + backend_sha + '-' + run_id + '-' + attempt + '-' + deploy_sha[:12],
         'runId': run_id, 'runAttempt': attempt,
         'backendSha': backend_sha, 'frontendSha': frontend_sha, 'deploySha': deploy_sha,
         'configurationSha256': configuration_digest(root), 'images': images})
