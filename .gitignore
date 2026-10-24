@@ -1,0 +1,22 @@
+# Runtime secrets and local artifacts
+.env
+.env.*
+!*.env.example
+!.env.example
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+*.key
+*.pem
+!*.example.*
+inventory.yml
+vault.yml
+*.dump
+*.partial
+.selected/
+artifacts/
+restore-results.json
+load-results.json
+backup-path.txt

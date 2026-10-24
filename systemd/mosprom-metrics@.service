@@ -1,0 +1,7 @@
+[Unit]
+Description=Mosprom host and container metrics
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /srv/mosprom-%i/current-config/scripts/host_metrics.py /srv/mosprom-%i --environment %i

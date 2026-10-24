@@ -1,0 +1,168 @@
+---
+- name: Controlled failure drills on an isolated staging inventory
+  hosts: mosprom
+  become: true
+  any_errors_fatal: true
+  tasks:
+    - name: Require explicit isolated-staging authorization
+      ansible.builtin.assert:
+        that:
+          - environment == 'staging'
+          - allow_fault_tests | default(false) | bool
+          - isolated_fault_inventory | default(false) | bool
+          - not ansible_host.startswith('203.0.113.')
+    - name: Select current primary
+      ansible.builtin.command:
+        argv: [docker, compose, --env-file, '/srv/mosprom-{{ environment }}/images.env', -f, '/srv/mosprom-{{ environment }}/ha/compose.yml', exec, -T, patroni, /opt/patroni/bin/patronictl, -c, /etc/patroni.yml, list, --format, json]
+      register: members
+      run_once: true
+      changed_when: false
+    - name: Remember primary and witness
+      ansible.builtin.set_fact:
+        failed_primary: "{{ (members.stdout | from_json | selectattr('Role', 'equalto', 'Leader') | first)['Member'] }}"
+      run_once: true
+    - name: Stop PostgreSQL primary and prove recovery through another node
+      run_once: true
+      block:
+        - name: Stop the selected primary
+          ansible.builtin.command:
+            argv: [docker, compose, --env-file, '/srv/mosprom-{{ environment }}/images.env', -f, '/srv/mosprom-{{ environment }}/ha/compose.yml', stop, patroni]
+          delegate_to: '{{ failed_primary }}'
+          changed_when: true
+        - name: Wait for one replacement primary
+          ansible.builtin.command:
+            argv: [docker, compose, --env-file, '/srv/mosprom-{{ environment }}/images.env', -f, '/srv/mosprom-{{ environment }}/ha/compose.yml', exec, -T, patroni, /opt/patroni/bin/patronictl, -c, /etc/patroni.yml, list, --format, json]
+          delegate_to: "{{ (groups.mosprom | difference([failed_primary]))[0] }}"
+          register: replacement
+          retries: 60
+          delay: 2
+          until: replacement.rc == 0 and (replacement.stdout | from_json | selectattr('Role', 'equalto', 'Leader') | list | length) == 1 and (replacement.stdout | from_json | selectattr('Role', 'equalto', 'Leader') | first)['Member'] != failed_primary
+          changed_when: false
+        - name: Verify global gameplay readiness
+          ansible.builtin.uri:
+            url: 'https://{{ global_domain }}/ready'
+            status_code: 200
+          register: global_readiness
+          retries: 60
+          delay: 2
+          until: global_readiness.status == 200
+      always:
+        - name: Return original node without forcing failback
+          ansible.builtin.command:
+            argv: [docker, compose, --env-file, '/srv/mosprom-{{ environment }}/images.env', -f, '/srv/mosprom-{{ environment }}/ha/compose.yml', start, patroni]
+          delegate_to: '{{ failed_primary }}'
+          changed_when: true
+    - name: Test loss of one API region
+      run_once: true
+      block:
+        - name: Stop API on first region
+          ansible.builtin.command:
+            argv: [docker, compose, --env-file, '/srv/mosprom-{{ environment }}/.env', --env-file, '/srv/mosprom-{{ environment }}/images.env', -f, '/srv/mosprom-{{ environment }}/current-config/compose/compose.yml', -f, '/srv/mosprom-{{ environment }}/current-config/compose/ha.yml', stop, api]
+          changed_when: true
+        - name: Verify failed region is removed from LoadBalancer health
+          ansible.builtin.uri:
+            url: '{{ public_origin }}/lb-ready'
+            status_code: 503
+          register: drained
+          retries: 20
+          delay: 2
+          until: drained.status == 503
+        - name: Verify other regions keep global API available
+          ansible.builtin.uri:
+            url: 'https://{{ global_domain }}/ready'
+            status_code: 200
+          register: available
+          retries: 30
+          delay: 2
+          until: available.status == 200
+      always:
+        - name: Restart only the stopped API
+          ansible.builtin.command:
+            argv: [docker, compose, --env-file, '/srv/mosprom-{{ environment }}/.env', --env-file, '/srv/mosprom-{{ environment }}/images.env', -f, '/srv/mosprom-{{ environment }}/current-config/compose/compose.yml', -f, '/srv/mosprom-{{ environment }}/current-config/compose/ha.yml', start, api]
+          changed_when: true
+    - name: Find Redis primary through authenticated Sentinel
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - --env-file
+          - '/srv/mosprom-{{ environment }}/images.env'
+          - -f
+          - '/srv/mosprom-{{ environment }}/ha/compose.yml'
+          - exec
+          - -T
+          - sentinel
+          - sh
+          - -ec
+          - 'export REDISCLI_AUTH; REDISCLI_AUTH="$(sed -n "s/^requirepass //p" /config/sentinel.conf)"; exec redis-cli --tls --cacert /tls/ca.crt -h {{ hostvars[groups.redis_nodes[0]].wg_ip }} -p 26379 SENTINEL get-master-addr-by-name mosprom'
+      delegate_to: '{{ groups.redis_nodes[0] }}'
+      run_once: true
+      register: redis_primary
+      changed_when: false
+      no_log: true
+    - name: Remember Redis primary host
+      ansible.builtin.set_fact:
+        failed_redis: '{{ item }}'
+      loop: '{{ groups.redis_nodes }}'
+      when: hostvars[item].wg_ip == redis_primary.stdout_lines[0]
+      run_once: true
+    - name: Stop Redis primary and verify Sentinel changes the advertised address
+      run_once: true
+      block:
+        - name: Stop Redis primary only
+          ansible.builtin.command:
+            argv: [docker, compose, --env-file, '/srv/mosprom-{{ environment }}/images.env', -f, '/srv/mosprom-{{ environment }}/ha/compose.yml', stop, redis]
+          delegate_to: '{{ failed_redis }}'
+          changed_when: true
+        - name: Wait for Sentinel failover
+          ansible.builtin.command:
+            argv: [docker, compose, --env-file, '/srv/mosprom-{{ environment }}/images.env', -f, '/srv/mosprom-{{ environment }}/ha/compose.yml', exec, -T, sentinel, sh, -ec, 'export REDISCLI_AUTH; REDISCLI_AUTH="$(sed -n "s/^requirepass //p" /config/sentinel.conf)"; exec redis-cli --tls --cacert /tls/ca.crt -h {{ hostvars[groups.redis_nodes[0]].wg_ip }} -p 26379 SENTINEL get-master-addr-by-name mosprom']
+          delegate_to: '{{ groups.redis_nodes[0] }}'
+          register: redis_replacement
+          retries: 30
+          delay: 2
+          until: redis_replacement.rc == 0 and redis_replacement.stdout_lines | length == 2 and redis_replacement.stdout_lines[0] != redis_primary.stdout_lines[0]
+          changed_when: false
+          no_log: true
+      always:
+        - name: Return Redis node to replication
+          ansible.builtin.command:
+            argv: [docker, compose, --env-file, '/srv/mosprom-{{ environment }}/images.env', -f, '/srv/mosprom-{{ environment }}/ha/compose.yml', start, redis]
+          delegate_to: '{{ failed_redis }}'
+          changed_when: true
+    - name: Isolate one complete site from the private mesh with a timed safety recovery
+      run_once: true
+      block:
+        - name: Schedule automatic network recovery
+          ansible.builtin.command:
+            argv: [systemd-run, --collect, --unit=mosprom-fault-heal, --on-active=90s, /usr/sbin/iptables, -D, INPUT, -i, wg0, -j, DROP]
+          changed_when: true
+        - name: Partition WireGuard traffic while keeping public SSH control
+          ansible.builtin.command: iptables -I INPUT -i wg0 -j DROP
+          changed_when: true
+        - name: Verify global service recovers without the isolated site
+          ansible.builtin.uri:
+            url: 'https://{{ global_domain }}/ready'
+            status_code: 200
+          delegate_to: '{{ groups.mosprom[1] }}'
+          register: partition_ready
+          retries: 60
+          delay: 2
+          until: partition_ready.status == 200
+      always:
+        - name: Wait for fenced node to return if watchdog rebooted it
+          ansible.builtin.wait_for_connection:
+            timeout: 180
+        - name: Remove the temporary isolation rule if still present
+          ansible.builtin.command: iptables -D INPUT -i wg0 -j DROP
+          register: healed
+          changed_when: healed.rc == 0
+          failed_when: healed.rc not in [0, 1]
+    - name: Persist drill completion
+      ansible.builtin.set_stats:
+        data:
+          postgres_primary_failover: passed
+          api_region_failure: passed
+          redis_primary_failover: passed
+          site_network_partition: passed
+      run_once: true

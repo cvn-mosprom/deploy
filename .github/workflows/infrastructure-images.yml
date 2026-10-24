@@ -1,0 +1,61 @@
+name: infrastructure-images
+on:
+  workflow_dispatch:
+permissions: {contents: read, packages: write, id-token: write}
+jobs:
+  images:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        name: [discovery, patroni]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with: {registry: ghcr.io, username: '${{ github.actor }}', password: '${{ secrets.GITHUB_TOKEN }}'}
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
+        with:
+          context: services/${{ matrix.name }}
+          platforms: linux/amd64
+          outputs: type=oci,dest=/tmp/image.tar
+          tags: ghcr.io/cvn-mosprom/${{ matrix.name }}:sha-${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+      - uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        with: {input: /tmp/image.tar, severity: 'HIGH,CRITICAL', exit-code: '1', ignore-unfixed: false}
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+      - name: Publish scanned artifact and sign
+        env: {IMAGE: '${{ matrix.name }}'}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y skopeo
+          skopeo copy --all --preserve-digests oci-archive:/tmp/image.tar "docker://ghcr.io/cvn-mosprom/${IMAGE}:sha-${GITHUB_SHA}"
+          ref="ghcr.io/cvn-mosprom/${IMAGE}"
+          digest="$(docker buildx imagetools inspect "${ref}:sha-${GITHUB_SHA}" --format '{{.Manifest.Digest}}')"
+          cosign sign --yes "${ref}@${digest}"
+          printf '%s@%s\n' "$ref" "$digest" > "${IMAGE}.txt"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with: {name: 'infra-${{ matrix.name }}', path: '${{ matrix.name }}.txt', retention-days: 30}
+  manifest-pr:
+    needs: images
+    runs-on: ubuntu-24.04
+    permissions: {contents: read}
+    steps:
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349
+        id: app
+        with:
+          app-id: ${{ vars.AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+          owner: cvn-mosprom
+          repositories: deploy
+          permission-contents: write
+          permission-pull-requests: write
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {token: '${{ steps.app.outputs.token }}', persist-credentials: false}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with: {pattern: 'infra-*', path: artifacts}
+      - name: Propose the complete infrastructure lock
+        env: {GH_TOKEN: '${{ steps.app.outputs.token }}'}
+        run: bash scripts/infrastructure_pr.sh

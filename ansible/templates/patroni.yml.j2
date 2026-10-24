@@ -1,0 +1,73 @@
+scope: mosprom-{{ environment }}
+namespace: /service/
+name: {{ inventory_hostname }}
+restapi:
+  listen: {{ wg_ip }}:8008
+  connect_address: {{ wg_ip }}:8008
+  certfile: /tls/node.crt
+  keyfile: /tls/node.key
+  cafile: /tls/ca.crt
+  verify_client: required
+  authentication:
+    username: operations
+    password: {{ vault_patroni_admin_password | to_json }}
+ctl:
+  cacert: /tls/ca.crt
+  certfile: /tls/patroni.crt
+  keyfile: /tls/patroni.key
+etcd3:
+  hosts: {{ groups['dcs'] | map('extract', hostvars, 'wg_ip') | map('regex_replace', '$', ':2379') | join(',') }}
+  protocol: https
+  cacert: /tls/ca.crt
+  cert: /tls/patroni.crt
+  key: /tls/patroni.key
+bootstrap:
+  dcs:
+    ttl: 30
+    loop_wait: 10
+    retry_timeout: 10
+    maximum_lag_on_failover: 1048576
+    check_timeline: true
+    synchronous_mode: false
+    postgresql:
+      use_pg_rewind: true
+      use_slots: true
+      parameters:
+        wal_level: replica
+        hot_standby: 'on'
+        max_wal_senders: 10
+        max_replication_slots: 10
+        wal_log_hints: 'on'
+        archive_mode: 'on'
+        archive_command: pgbackrest --stanza=mosprom archive-push %p
+        restore_command: pgbackrest --stanza=mosprom archive-get %f %p
+        max_connections: {{ postgres_max_connections | default(200) }}
+        ssl: 'on'
+        ssl_cert_file: /tls/postgres.crt
+        ssl_key_file: /tls/postgres.key
+        ssl_ca_file: /tls/ca.crt
+  initdb:
+    - encoding: UTF8
+    - locale: C.UTF-8
+    - data-checksums
+  pg_hba:
+    - local all all trust
+    - hostssl replication replicator 10.60.0.0/24 scram-sha-256
+    - hostssl all all 10.60.0.0/24 scram-sha-256
+    - host all all 0.0.0.0/0 reject
+postgresql:
+  listen: {{ wg_ip }}:5432
+  connect_address: {{ wg_ip }}:5432
+  data_dir: /var/lib/postgresql/data/pgdata
+  bin_dir: /usr/lib/postgresql/16/bin
+  authentication:
+    superuser:
+      username: postgres
+      password: {{ vault_postgres_admin_password | to_json }}
+    replication:
+      username: replicator
+      password: {{ vault_replication_password | to_json }}
+watchdog:
+  mode: required
+  device: /dev/watchdog
+  safety_margin: -1

@@ -1,0 +1,49 @@
+all:
+  vars:
+    ansible_user: ubuntu
+    environment: staging
+    routing_zone: game.example.com
+    global_domain: staging.game.example.com
+    acme_email: ops@example.com
+    wireguard_port: 51820
+    backup_s3_endpoint: backup.example.com
+    backup_s3_bucket: mosprom-staging
+  children:
+    mosprom:
+      hosts:
+        msk-1:
+          ansible_host: 203.0.113.11
+          wg_ip: 10.60.0.11
+          region_id: msk-1
+          region_name: МОСКВА-1
+          public_domain: msk-1.game.example.com
+          public_origin: https://msk-1.game.example.com
+          readiness_url: https://msk-1.game.example.com/ready
+        kzn:
+          ansible_host: 203.0.113.12
+          wg_ip: 10.60.0.12
+          region_id: kzn
+          region_name: КАЗАНЬ
+          public_domain: kzn.game.example.com
+          public_origin: https://kzn.game.example.com
+          readiness_url: https://kzn.game.example.com/ready
+        spb:
+          ansible_host: 203.0.113.13
+          wg_ip: 10.60.0.13
+          region_id: spb
+          region_name: САНКТ-ПЕТЕРБУРГ
+          public_domain: spb.game.example.com
+          public_origin: https://spb.game.example.com
+          readiness_url: https://spb.game.example.com/ready
+        msk-2:
+          ansible_host: 203.0.113.14
+          wg_ip: 10.60.0.14
+          region_id: msk-2
+          region_name: МОСКВА-2
+          public_domain: msk-2.game.example.com
+          public_origin: https://msk-2.game.example.com
+          readiness_url: https://msk-2.game.example.com/ready
+    dcs:
+      hosts: {msk-1: {}, kzn: {}, spb: {}}
+    redis_nodes:
+      hosts: {msk-1: {}, kzn: {}, spb: {}}

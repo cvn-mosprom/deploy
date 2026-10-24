@@ -1,0 +1,101 @@
+name: mosprom-{{ environment }}-ha
+services:
+{% if inventory_hostname in groups['dcs'] %}
+  etcd:
+    image: ${ETCD_IMAGE:?etcd image required}
+    network_mode: host
+    restart: unless-stopped
+    group_add: ['20000']
+    volumes:
+      - /srv/mosprom-{{ environment }}/etcd:/etcd-data
+      - /srv/mosprom-{{ environment }}/tls:/tls:ro
+    environment:
+      ETCDCTL_ENDPOINTS: https://{{ wg_ip }}:2379
+    command:
+      - /usr/local/bin/etcd
+      - --name={{ inventory_hostname }}
+      - --data-dir=/etcd-data
+      - --listen-client-urls=https://{{ wg_ip }}:2379
+      - --advertise-client-urls=https://{{ wg_ip }}:2379
+      - --listen-peer-urls=https://{{ wg_ip }}:2380
+      - --initial-advertise-peer-urls=https://{{ wg_ip }}:2380
+      - --initial-cluster={% for host in groups['dcs'] %}{{ host }}=https://{{ hostvars[host].wg_ip }}:2380{{ ',' if not loop.last else '' }}{% endfor %}
+
+      - --initial-cluster-token=mosprom-{{ environment }}
+      - --client-cert-auth
+      - --trusted-ca-file=/tls/ca.crt
+      - --cert-file=/tls/node.crt
+      - --key-file=/tls/node.key
+      - --peer-client-cert-auth
+      - --peer-trusted-ca-file=/tls/ca.crt
+      - --peer-cert-file=/tls/node.crt
+      - --peer-key-file=/tls/node.key
+{% endif %}
+  patroni:
+    image: ${PATRONI_IMAGE:?Patroni image required}
+    network_mode: host
+    restart: unless-stopped
+    user: '999:999'
+    group_add: ['20000']
+    devices: [/dev/watchdog:/dev/watchdog]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - /srv/mosprom-{{ environment }}/postgres:/var/lib/postgresql/data
+      - /srv/mosprom-{{ environment }}/ha/patroni.yml:/etc/patroni.yml:ro
+      - /srv/mosprom-{{ environment }}/ha/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
+      - /srv/mosprom-{{ environment }}/tls/ca.crt:/tls/ca.crt:ro
+      - /srv/mosprom-{{ environment }}/tls/node.crt:/tls/node.crt:ro
+      - /srv/mosprom-{{ environment }}/tls/node.key:/tls/node.key:ro
+      - /srv/mosprom-{{ environment }}/tls/postgres.crt:/tls/postgres.crt:ro
+      - /srv/mosprom-{{ environment }}/tls/postgres.key:/tls/postgres.key:ro
+      - /srv/mosprom-{{ environment }}/tls/patroni.crt:/tls/patroni.crt:ro
+      - /srv/mosprom-{{ environment }}/tls/patroni.key:/tls/patroni.key:ro
+    command: [/opt/patroni/bin/patroni, /etc/patroni.yml]
+  pg-router:
+    image: ${HAPROXY_IMAGE:?HAProxy image required}
+    network_mode: host
+    restart: unless-stopped
+    group_add: ['20000']
+    volumes:
+      - /srv/mosprom-{{ environment }}/ha/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - /srv/mosprom-{{ environment }}/tls/ca.crt:/tls/ca.crt:ro
+      - /srv/mosprom-{{ environment }}/tls/haproxy.pem:/tls/haproxy.pem:ro
+  pgbouncer:
+    image: ${PGBOUNCER_IMAGE:?PgBouncer image required}
+    network_mode: host
+    restart: unless-stopped
+    group_add: ['20000']
+    extra_hosts: ['pg-primary.internal:{{ wg_ip }}']
+    entrypoint: [pgbouncer, /etc/pgbouncer/custom.ini]
+    volumes:
+      - /srv/mosprom-{{ environment }}/ha/pgbouncer.ini:/etc/pgbouncer/custom.ini:ro
+      - /srv/mosprom-{{ environment }}/tls/ca.crt:/tls/ca.crt:ro
+      - /srv/mosprom-{{ environment }}/tls/postgres.crt:/tls/postgres.crt:ro
+      - /srv/mosprom-{{ environment }}/tls/postgres.key:/tls/postgres.key:ro
+      - /srv/mosprom-{{ environment }}/tls/pgbouncer-users.txt:/tls/pgbouncer-users.txt:ro
+{% if inventory_hostname in groups['redis_nodes'] %}
+  redis:
+    image: ${REDIS_IMAGE:?Redis image required}
+    network_mode: host
+    restart: unless-stopped
+    group_add: ['20000']
+    user: '999:999'
+    command: [redis-server, /config/redis.conf]
+    volumes:
+      - /srv/mosprom-{{ environment }}/ha/redis.conf:/config/redis.conf:ro
+      - /srv/mosprom-{{ environment }}/tls/ca.crt:/tls/ca.crt:ro
+      - /srv/mosprom-{{ environment }}/tls/node.crt:/tls/node.crt:ro
+      - /srv/mosprom-{{ environment }}/tls/node.key:/tls/node.key:ro
+  sentinel:
+    image: ${REDIS_IMAGE:?Redis image required}
+    network_mode: host
+    restart: unless-stopped
+    group_add: ['20000']
+    user: '0:0'
+    command: [redis-server, /config/sentinel.conf, --sentinel]
+    volumes:
+      - /srv/mosprom-{{ environment }}/sentinel:/config
+      - /srv/mosprom-{{ environment }}/tls/ca.crt:/tls/ca.crt:ro
+      - /srv/mosprom-{{ environment }}/tls/node.crt:/tls/node.crt:ro
+      - /srv/mosprom-{{ environment }}/tls/node.key:/tls/node.key:ro
+{% endif %}

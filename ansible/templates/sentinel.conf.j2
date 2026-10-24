@@ -1,0 +1,16 @@
+bind {{ wg_ip }}
+port 0
+tls-port 26379
+tls-cert-file /tls/node.crt
+tls-key-file /tls/node.key
+tls-ca-cert-file /tls/ca.crt
+tls-auth-clients no
+tls-replication yes
+requirepass {{ vault_redis_password }}
+sentinel monitor mosprom {{ hostvars[groups['redis_nodes'][0]].wg_ip }} 6379 2
+sentinel auth-pass mosprom {{ vault_redis_password }}
+sentinel down-after-milliseconds mosprom 5000
+sentinel failover-timeout mosprom 30000
+sentinel parallel-syncs mosprom 1
+sentinel sentinel-user default
+sentinel sentinel-pass {{ vault_redis_password }}

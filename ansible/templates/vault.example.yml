@@ -1,0 +1,27 @@
+# Encrypt a real file with ansible-vault; never commit populated values.
+# Host-scoped keys/certificates belong in host_vars/<node>/vault.yml.
+vault_app_password: REPLACE_WITH_32_OR_MORE_ALPHANUMERIC_CHARACTERS
+vault_migration_password: REPLACE_WITH_32_OR_MORE_ALPHANUMERIC_CHARACTERS
+vault_postgres_admin_password: REPLACE_WITH_32_OR_MORE_ALPHANUMERIC_CHARACTERS
+vault_replication_password: REPLACE_WITH_32_OR_MORE_ALPHANUMERIC_CHARACTERS
+vault_redis_password: REPLACE_WITH_32_OR_MORE_ALPHANUMERIC_CHARACTERS
+vault_internal_token: REPLACE_WITH_48_OR_MORE_ALPHANUMERIC_CHARACTERS
+vault_bot_token: REPLACE_WITH_SEPARATE_STAGING_OR_PRODUCTION_BOT_TOKEN
+vault_grafana_password: REPLACE_WITH_32_OR_MORE_ALPHANUMERIC_CHARACTERS
+vault_patroni_admin_password: REPLACE_WITH_32_OR_MORE_ALPHANUMERIC_CHARACTERS
+vault_backup_s3_key: REPLACE_ME
+vault_backup_s3_secret: REPLACE_ME
+vault_pgbackrest_cipher: REPLACE_WITH_OFF_HOST_BACKUP_ENCRYPTION_PASSWORD
+vault_wireguard_private_key: REPLACE_WITH_HOST_SPECIFIC_WIREGUARD_KEY
+vault_wireguard_public_keys:
+  msk-1: REPLACE_ME
+  kzn: REPLACE_ME
+  spb: REPLACE_ME
+  msk-2: REPLACE_ME
+# ca.crt; ingress.crt/key (global + regional SAN); node.crt/key (WG IP SAN);
+# postgres.crt/key (pg-primary.internal SAN); patroni.crt/key (CN patroni);
+# bot.crt/key (CN bot); monitor.crt/key; haproxy.pem (cert + private key);
+# pgbouncer-users.txt; root.crt/key (CN root, first DCS node only).
+vault_alert_webhook_url: https://alerts.example.com/mosprom
+vault_alert_webhook_token: REPLACE_WITH_RECEIVER_TOKEN
+vault_tls_files: {}

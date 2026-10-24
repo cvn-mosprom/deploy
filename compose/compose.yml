@@ -1,0 +1,202 @@
+name: mosprom-${ENVIRONMENT:?environment required}
+
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: '3'}
+x-common: &common
+  restart: unless-stopped
+  logging: *logging
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+x-app: &app
+  APP_ENV: prod
+  DEV_AUTH: '0'
+  DATABASE_URL: ${DATABASE_URL:?application database URL required}
+  REDIS_URL: ${REDIS_URL:?redis URL required}
+  REDIS_SENTINEL_NODES: ${REDIS_SENTINEL_NODES:-}
+  REDIS_MASTER_NAME: mosprom
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?redis password required}
+  REDIS_SENTINEL_PASSWORD: ${REDIS_PASSWORD:?redis password required}
+  REDIS_TLS: ${REDIS_TLS:-0}
+  REDIS_CA_FILE: /tls/ca.crt
+  SIM_URL: http://sim-router:8080
+  BOT_TOKEN: ${BOT_TOKEN:?bot token required}
+  INTERNAL_TOKEN: ${INTERNAL_TOKEN:?internal token required}
+  WEBAPP_URL: ${WEBAPP_URL:?public HTTPS URL required}
+  CORS_ORIGINS: ${CORS_ORIGINS:?explicit origins required}
+  FRONTEND_REVISION: ${FRONTEND_REVISION:?frontend revision required}
+  REGION_ID: ${REGION_ID:-local}
+  RELEASE_ID: ${RELEASE_ID:?release manifest required}
+  PGBOUNCER: ${PGBOUNCER:-0}
+
+services:
+  web:
+    <<: *common
+    image: ${WEB_IMAGE:?digest-pinned web image required}
+    cap_add: [NET_BIND_SERVICE]
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: ${WEB_MEMORY:-256m}
+    cpus: ${WEB_CPUS:-0.5}
+    ports: ['${HTTP_PORT:-80}:80', '${HTTPS_PORT:-443}:443']
+    environment:
+      DOMAIN: ${DOMAIN:?public domain required}
+      ROUTING_ZONE: ${ROUTING_ZONE:?routing zone required}
+      TLS_SNIPPET: ${TLS_SNIPPET:-acme}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME contact required}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${STATE_DIR:?state directory required}/caddy:/data
+    healthcheck:
+      test: [CMD, wget, -q, --spider, 'http://127.0.0.1:8081/health']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  api:
+    <<: *common
+    image: ${API_IMAGE:?digest-pinned api image required}
+    read_only: true
+    tmpfs: [/tmp]
+    environment:
+      <<: *app
+      WEB_CONCURRENCY: ${API_WORKERS:-2}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus
+    command: [/app/entrypoint.sh]
+    mem_limit: ${API_MEMORY:-768m}
+    cpus: ${API_CPUS:-2}
+    stop_grace_period: 20s
+
+  sim:
+    <<: *common
+    image: ${SIM_IMAGE:?digest-pinned sim image required}
+    read_only: true
+    tmpfs: [/tmp]
+    environment:
+      SIM_WORKERS: ${SIM_WORKERS:-2}
+      SIM_COMMIT: ${FRONTEND_REVISION:?frontend revision required}
+    mem_limit: ${SIM_MEMORY:-640m}
+    cpus: ${SIM_CPUS:-2}
+
+  sim-router:
+    <<: *common
+    image: ${HAPROXY_IMAGE:?HAProxy image required}
+    volumes: ['./sim-haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro']
+    read_only: true
+    tmpfs: [/run, /tmp]
+    mem_limit: 128m
+
+  bot:
+    <<: *common
+    image: ${BOT_IMAGE:?digest-pinned bot image required}
+    read_only: true
+    tmpfs: [/tmp]
+    environment:
+      <<: *app
+      API_INTERNAL_URL: http://api:8000
+      HR_ADMIN_TG_IDS: ${HR_ADMIN_TG_IDS:-}
+      HR_CHAT_ID: ${HR_CHAT_ID:-}
+      ETCD_ENDPOINTS: ${ETCD_ENDPOINTS:-}
+      ETCD_CA_FILE: /tls/ca.crt
+      ETCD_CERT_FILE: /tls/bot.crt
+      ETCD_KEY_FILE: /tls/bot.key
+      BOT_LEASE_KEY: /mosprom/${ENVIRONMENT}/bot
+    mem_limit: ${BOT_MEMORY:-384m}
+    cpus: ${BOT_CPUS:-0.5}
+
+  migrate:
+    <<: *common
+    restart: 'no'
+    profiles: [operations]
+    image: ${API_IMAGE:?API image required}
+    environment:
+      DATABASE_URL: ${MIGRATION_DATABASE_URL:?direct migration URL required}
+    command: [alembic, upgrade, head]
+
+  db:
+    profiles: [single]
+    image: ${POSTGRES_IMAGE:?PostgreSQL image required}
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_USER: mosprom_admin
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?database admin password required}
+      MIGRATION_PASSWORD: ${MIGRATION_PASSWORD:?migration password required}
+      POSTGRES_DB: mosprom
+      APP_PASSWORD: ${POSTGRES_PASSWORD:?application password required}
+    volumes:
+      - ${STATE_DIR}/postgres:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+    mem_limit: ${DB_MEMORY:-2g}
+    cpus: ${DB_CPUS:-2}
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U mosprom_migrate -d mosprom']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    <<: *common
+    profiles: [single]
+    image: ${REDIS_IMAGE:?Redis image required}
+    environment: {REDIS_PASSWORD: '${REDIS_PASSWORD:?Redis password required}'}
+    command: [sh, -ec, 'exec redis-server --requirepass "$${REDIS_PASSWORD}" --save "" --appendonly no --maxmemory 256mb --maxmemory-policy volatile-lru']
+    mem_limit: 384m
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$${REDIS_PASSWORD}" redis-cli ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  discovery:
+    <<: *common
+    image: ${DISCOVERY_IMAGE:?digest-pinned discovery image required}
+    read_only: true
+    tmpfs: [/tmp]
+    environment:
+      REGION_ID: ${REGION_ID:-local}
+      DISCOVERY_CA_FILE: ${DISCOVERY_CA_FILE:-}
+    volumes:
+      - ${STATE_DIR}/routing:/config:ro
+      - ${STATE_DIR}/monitoring:/status:ro
+    mem_limit: 128m
+
+  prometheus:
+    <<: *common
+    profiles: [monitoring]
+    image: ${PROMETHEUS_IMAGE:?Prometheus image required}
+    volumes:
+      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ${STATE_DIR}/prometheus-targets.json:/etc/prometheus/targets.json:ro
+      - prometheus_data:/prometheus
+    mem_limit: 512m
+
+  grafana:
+    <<: *common
+    profiles: [monitoring]
+    image: ${GRAFANA_IMAGE:?Grafana image required}
+    ports: ['127.0.0.1:3000:3000']
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?Grafana password required}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+    volumes:
+      - ../monitoring/grafana:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    mem_limit: 384m
+
+  alertmanager:
+    <<: *common
+    profiles: [monitoring]
+    image: ${ALERTMANAGER_IMAGE:?Alertmanager image required}
+    volumes:
+      - ${STATE_DIR}/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ${STATE_DIR}/alert-webhook-token:/run/secrets/alert-webhook-token:ro
+    mem_limit: 128m
+
+volumes:
+  prometheus_data:
+  grafana_data:

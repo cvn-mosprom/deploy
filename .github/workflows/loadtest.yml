@@ -1,0 +1,25 @@
+name: loadtest
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Name of deployed capacity profile, e.g. 1x2cpu or 4x4cpu
+        type: string
+        required: true
+permissions: {contents: read}
+concurrency: {group: staging-loadtest, cancel-in-progress: false}
+jobs:
+  measure:
+    if: github.ref == 'refs/heads/main'
+    environment: staging
+    runs-on: [self-hosted, mosprom-cd]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Load test of the current staging revision
+        env: {CAPACITY_PROFILE: '${{ inputs.profile }}'}
+        run: python3 scripts/run_loadtest.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with: {name: load-results, path: load-results.json, retention-days: 30}

@@ -1,0 +1,8 @@
+[Unit]
+Description=Mosprom Patroni primary backup
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+UMask=0027
+ExecStart=/usr/bin/python3 /srv/mosprom-%i/current-config/scripts/backup_ha.py /srv/mosprom-%i

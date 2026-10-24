@@ -1,0 +1,20 @@
+bind {{ wg_ip }}
+protected-mode yes
+port 0
+tls-port 6379
+tls-cert-file /tls/node.crt
+tls-key-file /tls/node.key
+tls-ca-cert-file /tls/ca.crt
+tls-auth-clients no
+tls-replication yes
+requirepass {{ vault_redis_password }}
+masterauth {{ vault_redis_password }}
+{% if inventory_hostname != groups['redis_nodes'][0] %}
+replicaof {{ hostvars[groups['redis_nodes'][0]].wg_ip }} 6379
+{% endif %}
+maxmemory 256mb
+maxmemory-policy volatile-lru
+save ""
+appendonly no
+min-replicas-to-write 1
+min-replicas-max-lag 10

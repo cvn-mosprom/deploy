@@ -1,0 +1,43 @@
+groups:
+  - name: mosprom
+    rules:
+      - alert: TargetUnavailable
+        expr: up == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: 'Scrape target is unavailable'}
+      - alert: HighServerErrorRate
+        expr: sum(rate(mosprom_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(mosprom_http_requests_total[5m])), 0.01) > 0.05
+        for: 5m
+        labels: {severity: critical}
+        annotations: {summary: 'API error rate exceeds 5 percent'}
+      - alert: HighAPILatency
+        expr: histogram_quantile(0.95, sum by (le) (rate(mosprom_http_duration_seconds_bucket[5m]))) > 1
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: 'API p95 exceeds one second'}
+      - alert: DiscoveryUnavailable
+        expr: mosprom_discovery_ready == 0 or mosprom_discovery_regions_ready == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: 'No ready compatible regional routes'}
+      - alert: PostgreSQLNoPrimary
+        expr: sum(patroni_primary) != 1
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: 'Patroni must have one primary'}
+      - alert: BackupTooOld
+        expr: time() - max(mosprom_backup_last_success_timestamp_seconds) > 25200
+        for: 5m
+        labels: {severity: critical}
+        annotations: {summary: 'Successful backup is older than seven hours'}
+      - alert: LowDiskSpace
+        expr: mosprom_node_disk_free_bytes < 5368709120
+        for: 5m
+        labels: {severity: critical}
+        annotations: {summary: 'Node has less than 5 GiB free'}
+      - alert: HighMemoryUsage
+        expr: mosprom_node_memory_available_bytes / mosprom_node_memory_total_bytes < 0.1
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: 'Less than 10 percent of RAM is available'}

@@ -1,0 +1,14 @@
+SELECT 'CREATE ROLE mosprom_migrate LOGIN NOSUPERUSER' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname='mosprom_migrate') \gexec
+ALTER ROLE mosprom_migrate PASSWORD '{{ vault_migration_password }}';
+SELECT 'CREATE ROLE mosprom_app LOGIN NOSUPERUSER' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname='mosprom_app') \gexec
+ALTER ROLE mosprom_app PASSWORD '{{ vault_app_password }}';
+SELECT 'CREATE DATABASE mosprom OWNER mosprom_migrate TEMPLATE template0 ENCODING ''UTF8'' LC_COLLATE ''C.UTF-8'' LC_CTYPE ''C.UTF-8''' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='mosprom') \gexec
+\connect mosprom
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+ALTER SCHEMA public OWNER TO mosprom_migrate;
+GRANT CONNECT ON DATABASE mosprom TO mosprom_app;
+GRANT USAGE ON SCHEMA public TO mosprom_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE mosprom_migrate IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO mosprom_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE mosprom_migrate IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO mosprom_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO mosprom_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO mosprom_app;

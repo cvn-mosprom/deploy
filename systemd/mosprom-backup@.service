@@ -1,0 +1,9 @@
+[Unit]
+Description=Mosprom encrypted off-host backup (%i)
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/usr/bin/python3 /srv/mosprom-%i/current-config/scripts/backup.py /srv/mosprom-%i/current.json --env-file /srv/mosprom-%i/.env

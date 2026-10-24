@@ -1,0 +1,2 @@
+# Populate with verified repository collaborators using deploy/scripts/repository_settings.py.
+# Activation refuses an empty owner set; never substitute a nonexistent team.

@@ -1,0 +1,19 @@
+[databases]
+mosprom = host=pg-primary.internal port=5433 dbname=mosprom
+[pgbouncer]
+pidfile = /tmp/pgbouncer.pid
+logfile = /dev/stdout
+listen_addr = {{ wg_ip }}
+listen_port = 6432
+auth_type = scram-sha-256
+auth_file = /tls/pgbouncer-users.txt
+pool_mode = transaction
+max_client_conn = 1000
+default_pool_size = {{ pgbouncer_pool_size | default(20) }}
+query_timeout = 4
+ignore_startup_parameters = extra_float_digits
+server_tls_sslmode = verify-full
+server_tls_ca_file = /tls/ca.crt
+client_tls_sslmode = require
+client_tls_cert_file = /tls/postgres.crt
+client_tls_key_file = /tls/postgres.key

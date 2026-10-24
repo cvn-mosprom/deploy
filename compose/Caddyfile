@@ -1,0 +1,74 @@
+(acme) {
+  tls {$ACME_EMAIL}
+}
+(provided) {
+  tls /tls/ingress.crt /tls/ingress.key
+}
+:8081 {
+  respond /health 200
+}
+{$DOMAIN} {
+  import {$TLS_SNIPPET:acme}
+  encode zstd gzip
+  header {
+    Strict-Transport-Security "max-age=31536000"
+    X-Content-Type-Options nosniff
+    Referrer-Policy strict-origin-when-cross-origin
+    Content-Security-Policy "default-src 'self'; script-src 'self' https://telegram.org 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.telegram.org https://*.t.me; media-src 'self' blob:; font-src 'self'; connect-src 'self' https://*.{$ROUTING_ZONE}; worker-src 'self' blob:; frame-ancestors 'self' https://web.telegram.org https://*.telegram.org; base-uri 'self'; object-src 'none'"
+  }
+  log {
+    format filter {
+      wrap json
+      fields {
+        request>headers>X-Telegram-Init-Data delete
+        request>headers>X-Dev-User delete
+        request>headers>Authorization delete
+        request>headers>Cookie delete
+      }
+    }
+  }
+  @private path /internal /internal/* /metrics
+  handle @private {
+    respond 404
+  }
+  handle /lb-ready {
+    rewrite * /ingress-ready
+    reverse_proxy discovery:8080
+  }
+  handle /routing/regions {
+    reverse_proxy discovery:8080
+  }
+  @api path /api/* /health /ready /routing/ping /routing/report
+  handle @api {
+    request_body {
+      max_size 2MB
+    }
+    reverse_proxy api:8000 {
+      transport http {
+        dial_timeout 3s
+        response_header_timeout 15s
+      }
+    }
+  }
+  handle {
+    root * /srv
+    @immutable path /_app/immutable/*
+    header @immutable Cache-Control "public, max-age=31536000, immutable"
+    @pages not path /_app/immutable/* /fonts/* /audio/* /icons/* /labels/* /landing/*
+    header @pages Cache-Control no-cache
+    try_files {path} {path}.html /index.html
+    file_server
+  }
+}
+
+# Published on WireGuard only by the HA overlay; never on a public host interface.
+http://:9443 {
+  handle /discovery-metrics {
+    rewrite * /metrics
+    reverse_proxy discovery:8080
+  }
+  handle /metrics {
+    reverse_proxy api:8000
+  }
+  respond 404
+}

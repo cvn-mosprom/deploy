@@ -1,0 +1,16 @@
+[global]
+repo1-type=s3
+repo1-path=/{{ environment }}
+repo1-s3-endpoint={{ backup_s3_endpoint }}
+repo1-s3-bucket={{ backup_s3_bucket }}
+repo1-s3-region={{ backup_s3_region | default('us-east-1') }}
+repo1-s3-key={{ vault_backup_s3_key }}
+repo1-s3-key-secret={{ vault_backup_s3_secret }}
+repo1-cipher-type=aes-256-cbc
+repo1-cipher-pass={{ vault_pgbackrest_cipher }}
+repo1-retention-full=4
+log-level-console=info
+[mosprom]
+pg1-path=/var/lib/postgresql/data/pgdata
+pg1-host-user=postgres
+pg1-port=5432

@@ -1,0 +1,20 @@
+name: fault-tests
+on:
+  workflow_dispatch:
+permissions: {contents: read}
+concurrency: {group: staging-fault-tests, cancel-in-progress: false}
+jobs:
+  drills:
+    if: github.ref == 'refs/heads/main'
+    environment: staging
+    runs-on: [self-hosted, mosprom-cd]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - name: Fault drills require a separate isolated staging inventory
+        run: >-
+          ansible-playbook -i /etc/mosprom/fault-test/inventory.yml
+          -e @/etc/mosprom/fault-test/vault.yml
+          -e allow_fault_tests=true -e isolated_fault_inventory=true
+          ansible/fault-tests.yml

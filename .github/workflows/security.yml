@@ -1,0 +1,56 @@
+name: security
+on:
+  workflow_call:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+permissions: {contents: read, packages: read}
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {fetch-depth: 0, persist-credentials: false}
+      - name: Secrets in complete history (redacted)
+        run: >-
+          docker run --rm -v "$PWD:/repo:ro"
+          ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+          detect --source=/repo --config=/repo/.gitleaks.toml --log-opts=--all --redact
+      - uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        with:
+          scan-type: fs
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: '1'
+          skip-dirs: node_modules,.venv,vendor
+      - name: Workflow lint
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -config-file .github/actionlint.yaml
+      - name: Shell lint
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y shellcheck
+          find . -path './vendor' -prune -o -path './node_modules' -prune -o -name '*.sh' -print0 | xargs -0 -r shellcheck
+      - name: Dockerfile lint
+        run: |
+          find . -path './vendor' -prune -o -name Dockerfile -print0 | while IFS= read -r -d '' file; do
+            docker run --rm -i hadolint/hadolint:v2.12.0@sha256:30a8fd2e785ab6176eed53f74769e04f125afb2f74a6c52aef7d463583b6d45e hadolint --failure-threshold error - < "$file"
+          done
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with: {python-version: '3.12'}
+      - run: pip install --require-hashes -r requirements.lock
+      - run: pip-audit -r requirements.lock --require-hashes --disable-pip
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        with: {registry: ghcr.io, username: '${{ github.actor }}', password: '${{ secrets.GITHUB_TOKEN }}'}
+      - name: Rescan deployed digest sets
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env: {GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}'}
+        run: python scripts/scan_deployed.py

@@ -1,0 +1,42 @@
+services:
+  api:
+    extra_hosts: ['pg-primary.internal:${WG_IP:?private node IP required}']
+    group_add: ['20000']
+    volumes: ['${STATE_DIR}/tls/ca.crt:/tls/ca.crt:ro']
+    environment:
+      DB_TLS: '1'
+      DB_CA_FILE: /tls/ca.crt
+  bot:
+    volumes:
+      - ${STATE_DIR}/tls/ca.crt:/tls/ca.crt:ro
+      - ${STATE_DIR}/tls/bot.crt:/tls/bot.crt:ro
+      - ${STATE_DIR}/tls/bot.key:/tls/bot.key:ro
+    extra_hosts: ['pg-primary.internal:${WG_IP:?private node IP required}']
+    group_add: ['20000']
+    environment:
+      DB_TLS: '1'
+      DB_CA_FILE: /tls/ca.crt
+  migrate:
+    volumes: ['${STATE_DIR}/tls/ca.crt:/tls/ca.crt:ro']
+    extra_hosts: ['pg-primary.internal:${WG_IP:?private node IP required}']
+    group_add: ['20000']
+    environment:
+      DB_TLS: '1'
+      DB_CA_FILE: /tls/ca.crt
+  discovery:
+    group_add: ['20000']
+    volumes: ['${STATE_DIR}/tls/ca.crt:/tls/ca.crt:ro']
+  prometheus:
+    group_add: ['20000']
+    volumes:
+      - ../monitoring/prometheus-ha.yml:/etc/prometheus/prometheus.yml:ro
+      - ${STATE_DIR}/tls/ca.crt:/tls/ca.crt:ro
+      - ${STATE_DIR}/tls/monitor.crt:/tls/monitor.crt:ro
+      - ${STATE_DIR}/tls/monitor.key:/tls/monitor.key:ro
+  web:
+    ports: ['${WG_IP:?private node IP required}:9443:9443']
+    volumes:
+      - ${STATE_DIR}/tls/ingress.crt:/tls/ingress.crt:ro
+      - ${STATE_DIR}/tls/ingress.key:/tls/ingress.key:ro
+  alertmanager:
+    group_add: ['20000']
