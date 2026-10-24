@@ -43,7 +43,7 @@ jobs:
           find . -path './vendor' -prune -o -name Dockerfile -print0 | while IFS= read -r -d '' file; do
             docker run --rm -i hadolint/hadolint:v2.12.0@sha256:30a8fd2e785ab6176eed53f74769e04f125afb2f74a6c52aef7d463583b6d45e hadolint --failure-threshold error - < "$file"
           done
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with: {python-version: '3.12'}
       - run: pip install --require-hashes -r requirements.lock
       - run: pip-audit -r requirements.lock --require-hashes --disable-pip
