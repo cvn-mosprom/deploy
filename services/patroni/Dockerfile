@@ -1,4 +1,4 @@
-FROM docker.io/library/postgres:16-bookworm@sha256:d81f7b51697014367236d07ec58b54153fc28f828b72bf247fe5c7487520bcb0
+FROM docker.io/library/postgres:18-bookworm@sha256:bbf83594798e144bff365a9c191c5d779f181fb3135902064ab8ff11918020fc
 RUN apt-get update && apt-get install -y --no-install-recommends python3-venv pgbackrest && rm -rf /var/lib/apt/lists/*
 RUN python3 -m venv /opt/patroni
 COPY requirements.lock /tmp/requirements.lock
