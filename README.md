@@ -1,12 +1,104 @@
-# Моспром: безопасная поставка и распределённое развёртывание
+<div align="center">
 
-Отдельный [CD прототипа из infra-веток](PROTOTYPE-CD.md) доставляет четыре подписанных образа после успешного CI через ограниченный SSH forced command. Он делает дамп перед миграциями и обновляет только приложение; HA-кластер не используется. Доставка включается после bootstrap и установки environment secret.
+# Смена на Очаково · deploy
 
-Система готова к развёртыванию на распределённой инфраструктуре и поддерживает **горизонтальное и вертикальное масштабирование серверной части игры**. В репозитории находятся конфигурации, инструменты доставки и проверки. Подключение реальных серверов, DNS, LoadBalancer, сертификатов и секретов выполняется через inventory; статус испытаний указан в [VALIDATION.md](VALIDATION.md).
+**Поставка и развёртывание Mini App «Очаково»: подписанные образы, релиз одним манифестом, staging → production, живой прототип для жюри и референсный распределённый профиль на четырёх площадках с Patroni**
 
-**Статус выпуска:** прежние High-уязвимости Python/Caddy устранены; повторный Trivy scan API, bot, Caddy и discovery linux/amd64 дал 0 High/Critical. Публикация и production-приёмка выполняются отдельно; подробности — в [VALIDATION.md](VALIDATION.md).
+<sub>Хакатон **Открой#Моспром** · кейс «Очаково» — [github.com/cvn-mosprom](https://github.com/cvn-mosprom)</sub>
 
-Доступны два варианта: одна VM с Docker Compose и распределённая система с PostgreSQL/Patroni. Референсный пример — **МОСКВА-1, КАЗАНЬ, САНКТ-ПЕТЕРБУРГ и МОСКВА-2**, объединённые WireGuard и внешним отказоустойчивым **LoadBalancer**.
+<!--STATS-->
+**1** живой стенд &nbsp;·&nbsp; **4** площадки в референсе &nbsp;·&nbsp; **4** подписанных образа на релиз &nbsp;·&nbsp; **7** workflow &nbsp;·&nbsp; **3** playbook Ansible &nbsp;·&nbsp; **0** High/Critical в Trivy
+<!--/STATS-->
+
+[Прототип для жюри](#прототип-для-жюри) · [Локальный запуск](#локальный-запуск) · [Как устроена поставка](#как-устроена-поставка) · [Выбор дата-центра](#как-клиент-выбирает-дата-центр) · [Масштабирование](#что-масштабируется) · [Состав](#состав-репозитория) · [Проверки](#что-проверено) · [Ограничения](#ограничения-и-честные-границы)
+
+<img src="docs/img/prototype-landing.jpg" width="820" alt="Живой прототип ochakovo.velikoss.ru: карьерный лендинг «Очаково» с 3D-конвейером">
+
+*Живой прототип — https://ochakovo.velikoss.ru: лендинг на `/`, игра на `/app`, демо-CRM на `/hr`, бот [@cvnprombot](https://t.me/cvnprombot).*
+
+</div>
+
+## Почему это интересно
+
+* **Релиз — один манифест.** Четыре образа (api, bot, sim, web) одного SHA бэкенда и фронтенда сканируются, публикуются без пересборки, получают SBOM, provenance и подписи cosign; один PR в `deploy` содержит весь релиз: digest, исходные SHA, конфигурацию и совместимость миграций.
+* **Production только после staging того же манифеста.** После проверок `main` релиз сам уезжает на staging; production запускается вручную и принимает ровно тот манифест, у которого есть успешная запись staging в GitHub Deployments.
+* **Сборки не видят серверов.** CI идёт на GitHub-hosted раннерах; доверенный раннер `mosprom-cd` изолирован от PR и произвольных workflow. У production и staging разные базы, боты и секреты; секреты живут на серверах и в Ansible Vault, не в Git и не в build args.
+* **CD прототипа через forced command.** Доставка на живой стенд идёт по SSH ключом с `restrict` и принудительной командой: без shell, PTY и форвардинга, сервер принимает только ограниченный JSON, сам перепроверяет подписи, делает дамп перед миграциями и обновляет только приложение.
+* **Клиент сам выбирает ближайший дата-центр.** Discovery отдаёт список регионов, браузер меряет HTTPS-задержку, выбирает площадку и при отказе переключается с сохранением правил идемпотентности; несовместимый клиент получает `426 client_update_required` до обработки игровых запросов.
+* **Честные границы.** RPO=0 не заявляется, четыре площадки — референсный inventory, а не серверы в этих городах; что проверено фактически, а что моделировалось — в [`VALIDATION.md`](VALIDATION.md) и [`PROTOTYPE-VALIDATION.md`](PROTOTYPE-VALIDATION.md).
+
+## Прототип для жюри
+
+Отдельный односерверный профиль `mosprom-prototype` (4 vCPU / 8 ГБ, Санкт-Петербург), без Patroni и независимый от других проектов на хосте.
+
+| Адрес | Что это |
+|---|---|
+| https://ochakovo.velikoss.ru/ | карьерный лендинг |
+| https://ochakovo.velikoss.ru/app | игра; в Telegram — через подписанный initData, во внешнем браузере — ссылка на бота |
+| https://ochakovo.velikoss.ru/hr | демо-CRM подбора на синтетических данных, код `123456` |
+| https://ochakovo.velikoss.ru/ready | готовность: БД, миграции, Redis, sim, prod-конфигурация |
+| https://t.me/cvnprombot | бот: `/start` → кнопка игры, `WEBAPP_URL=…/app` |
+
+```bash
+curl -s https://ochakovo.velikoss.ru/ready
+```
+
+```json
+{"status":"ready","checks":{"db":"ok","migrations":"ok","redis":"ok","sim":"ok","media":"skipped: MEDIA_URL missing","config":"ok"}}
+```
+
+`media` пропущен намеренно: в прототипе медиа лежат в web-образе. `/routing/ping` отвечает `{"regionId":"spb","releaseId":"prototype-20261024","apiVersion":1}`.
+
+* **Изоляция.** Свой Compose-проект, свои тома и роли PostgreSQL (API и миграции — разные ограниченные роли), БД не публикуется на хост, `/internal` и `/metrics` закрыты снаружи, `X-Dev-User` отвергается (`DEV_AUTH=0`).
+* **TLS** завершает общий Caddy хоста (Let's Encrypt), сайт проксируется на `127.0.0.1:18081`.
+* **Telegram через прокси.** Bot API напрямую недоступен — бот ходит через `systemd-socket-proxyd` на адресе Docker-bridge к существующему HTTP-прокси; новых VPN и изменения маршрутов не потребовалось.
+* **Бэкапы** — сразу и каждые 6 часов, хранятся 7 суток; проверка восстановления `prototype-restore-check.py` поднимает временную БД и API, проверяет readiness и bootstrap и удаляет только свои ресурсы.
+
+Подробно: эксплуатация — [`PROTOTYPE.md`](PROTOTYPE.md), CD из infra-веток — [`PROTOTYPE-CD.md`](PROTOTYPE-CD.md), что проверено на сервере — [`PROTOTYPE-VALIDATION.md`](PROTOTYPE-VALIDATION.md).
+
+## Локальный запуск
+
+Нужны Docker с Compose v2 и соседний checkout `backend` с инициализированным сабмодулем (другой путь — `MOSPROM_BACKEND_DIR`).
+
+```bash
+bash scripts/demo.sh up
+```
+
+```bash
+bash scripts/demo.sh seed
+```
+
+| Адрес | Что это |
+|---|---|
+| http://localhost:8080/ | лендинг |
+| http://localhost:8080/app | игра |
+| http://localhost:8080/hr | демо-CRM, любой код из 6 цифр |
+
+Проект `mosprom-demo` публикует только `127.0.0.1:8080`, пароли генерируются в игнорируемом `.env.demo` с правами 0600, Telegram-токен не нужен. `stop` останавливает без удаления данных, `start` — из уже собранных образов, `status` и `logs` — состояние. Подробно — [`DEMO.md`](DEMO.md).
+
+## Как устроена поставка
+
+```mermaid
+flowchart LR
+  FE["frontend CI"] -->|"PR: обновить сабмодуль"| BE["backend CI: api, bot, sim, контракт, миграции, e2e"]
+  BE --> IMG["4 образа: Trivy → push → SBOM + provenance → cosign"]
+  IMG -->|"release PR: digest + SHA + совместимость схемы"| DEP["deploy: validate"]
+  DEP -->|"main, автоматически"| STG["staging"]
+  STG -->|"вручную, тот же манифест"| PRD["production"]
+  IMG -.->|"infra-ветка, forced command SSH"| PROTO["прототип ochakovo.velikoss.ru"]
+```
+
+1. CI фронтенда проверяет код и открывает PR с обновлением сабмодуля в бэкенде.
+2. Бэкенд проверяет API, бота, симулятор, контракт, миграции и настоящий HTTP-клиент; API и бот тестируются в отдельных Python-окружениях.
+3. Четыре образа одного SHA бэкенда и фронтенда сканируются (High/Critical, включая unfixed, блокируют публикацию), публикуются без пересборки и подписываются.
+4. Один PR в `deploy` — весь релиз: digest, SHA исходников, конфигурация, `schemaCompatibility`.
+5. После проверок `main` релиз автоматически уходит на staging; production — вручную, только с успешным staging того же манифеста.
+
+**Откат.** Одиночный профиль: `python scripts/deploy.py releases/<id>.json --env-file <env> --rollback` возвращает предыдущий успешный комплект с его конфигурацией — только если релиз отметил `schemaCompatibility.rollbackSafe=true` (по умолчанию `false`, миграции — expand/contract). Автоматический restore production запрещён.
+
+Порядок первого запуска — [`RUNBOOK.md`](RUNBOOK.md): GitHub App, инфраструктурные образы, секреты, CODEOWNERS, одиночная VM, HA-профиль. Порядок важен: frontend → сабмодуль в backend → полный релиз → staging → production.
+
+## Как клиент выбирает дата-центр
 
 ```mermaid
 flowchart TD
@@ -26,21 +118,13 @@ flowchart TD
   P --> DCS[etcd: МОСКВА-1, КАЗАНЬ, САНКТ-ПЕТЕРБУРГ]
 ```
 
-## Как frontend выбирает дата-центр
+* **Discovery:** `GET /routing/regions` — каталог с TTL 60 секунд и состояниями `ready`, `draining`, `unavailable`; внутренних адресов в публичном ответе нет.
+* **Проба:** `GET /routing/ping?nonce=…` — без initData, cookies и авторизации, `Cache-Control: no-store`. Один прогревочный и три измерительных запроса параллельно по регионам, нужно минимум два успешных замера; выбор — серия без ошибок → меньшая медиана → стабильный ID.
+* **Без дёрганья.** Проба ограничена секундой, серия — четырьмя; здоровый маршрут меняется только при выигрыше одновременно на 20 % и 30 мс и не чаще раза в пять минут. Переоценка — при смене сети, двух транспортных отказах подряд, возврате после долгого отсутствия и обновлении каталога; в скрытой вкладке пробы не идут.
+* **Безопасный failover.** Очередь команд и ключ идемпотентности сохраняются, незавершённая команда не рассылается по площадкам, `401`/`409`/`422` failover не вызывают, `429` сменой региона не обходится; после смены маршрута — свежий снимок перед новой командой.
+* **Rolling update.** Каталог несёт фактическую ревизию каждого региона; API отвергает несовместимый фронтенд кодом `426 client_update_required`.
 
-При запуске frontend запрашивает через LoadBalancer список доступных региональных API: **МОСКВА-1, КАЗАНЬ, САНКТ-ПЕТЕРБУРГ и МОСКВА-2**. Клиент проверяет доступность и задержку HTTPS-запросов, выбирает подходящий дата-центр и направляет туда игровые запросы. При отказе соединения выполняется контролируемое переключение с сохранением правил идемпотентности.
-
-Это выбор маршрута подключения браузера. Экземпляры приложения развёртываются средствами CD. Региональные HTTPS-адреса ведут строго в свою площадку; измерение не должно заканчиваться на общем CDN или другом регионе.
-
-- Discovery: `GET /routing/regions`, каталог TTL 60 секунд, состояния `ready`, `draining`, `unavailable`. В публичном ответе нет внутренних адресов.
-- Проверка: `GET /routing/ping?nonce=...`, без Telegram initData, cookies и авторизации; `Cache-Control: no-store`.
-- Один прогревочный и три измерительных запроса, параллельно между регионами. Требуются минимум два успешных замера. Выбор: серия без ошибок → меньшая медиана → стабильный ID.
-- «Пинг» — длительность небольшого HTTPS-запроса до регионального API, включая обработку ответа; не ICMP и не гарантия задержки игровой команды.
-- Проба ограничена одной секундой, серия — четырьмя, discovery — ещё одной. Здоровый маршрут меняется при улучшении одновременно на 20% и 30 мс, не чаще раза в пять минут.
-- Смена сети, два последовательных транспортных отказа, возврат после длительного отсутствия и обновление каталога вызывают переоценку на безопасной границе запросов. В скрытой вкладке пробы не выполняются.
-- При недоступности discovery используется общий API LoadBalancer. Production не переключается на локальную игровую модель.
-- Все адреса проверяются по доверенной HTTPS-зоне. Авторизованные запросы запрещают HTTP redirects. CORS и CSP ограничивают допустимые источники.
-- Во время rolling update каталог содержит фактическую ревизию каждого региона. API отвергает несовместимый frontend кодом `426 client_update_required` до обработки игровых запросов.
+Контракт discovery — [`docs/routing.md`](docs/routing.md).
 
 ## Что масштабируется
 
@@ -50,34 +134,86 @@ flowchart TD
 | sim | несколько экземпляров за HAProxy | CPU/RAM, `SIM_WORKERS`, лимиты контейнера |
 | PostgreSQL | реплики Patroni для отказоустойчивости | CPU/RAM, диски, настройки PostgreSQL |
 | Redis | primary, реплики и три Sentinel | RAM и лимиты |
-| Бот / планировщик | резервные экземпляры, один активный lease | ресурсы активного экземпляра |
+| Бот / планировщик | резервные экземпляры, один активный lease в etcd | ресурсы активного экземпляра |
 
-Общее состояние игры хранится в одном PostgreSQL primary. Выбор региона не создаёт отдельную копию аккаунта. Реплики Patroni не обеспечивают линейный рост производительности записи. Асинхронный режим повышает доступность и допускает потерю последних подтверждённых изменений при аварии; **RPO=0 не заявляется**. `maximum_lag_on_failover` ограничивает допустимое отставание, но не является гарантией RPO в секундах. Потеря кворума останавливает безопасное автоматическое избрание.
+Состояние игры — в одном PostgreSQL primary; выбор региона не создаёт копию аккаунта. Реплики Patroni дают доступность, а не линейный рост записи; асинхронная репликация допускает потерю последних подтверждённых изменений при аварии — **RPO=0 не заявляется**. Потеря кворума останавливает безопасное автоматическое избрание. Методика нагрузочных серий (1×2, 2×2, 4×2 и 1×4 CPU) — [`docs/performance.md`](docs/performance.md), сертификаты, Patroni, Redis/Sentinel и приёмка площадок — [`docs/ha.md`](docs/ha.md).
 
-## Поставка
+## Состав репозитория
 
-1. CI frontend проверяет код и открывает PR с обновлением submodule backend.
-2. Backend проверяет API, bot, sim, контракт, миграции и настоящий HTTP-клиент. API и бот тестируются в отдельных Python-окружениях из-за разных ограничений Pydantic.
-3. Четыре образа одного backend SHA и frontend SHA сканируются, публикуются без повторной сборки, получают SBOM/provenance и подписи cosign.
-4. Один PR в deploy содержит весь релиз: digest, SHA исходников, конфигурацию и совместимость миграций.
-5. После проверок `main` релиз автоматически поступает на staging. Production запускается вручную и принимает только тот же манифест с успешной записью staging в GitHub Deployments.
+| Путь | Назначение |
+|---|---|
+| `compose/compose.yml` | одиночная VM: web, api, sim + sim-router, bot, migrate, db, redis, discovery, Prometheus, Grafana, Alertmanager |
+| `compose/ha.yml` | слой приложения площадки в распределённом профиле |
+| `compose/prototype.yml`, `prototype.Caddyfile` | односерверный прототип для жюри |
+| `compose/demo.yml` | локальный стенд `mosprom-demo` из соседнего checkout бэкенда |
+| `ansible/` | `site.yml` (provisioning), `rollout.yml` (последовательное обновление площадок), `fault-tests.yml` (отказы на staging); 12 шаблонов — Patroni, PgBouncer, HAProxy, Redis/Sentinel, pgBackRest, роли БД, compose |
+| `services/discovery`, `services/patroni` | сервис выбора региона и образ Patroni |
+| `images/postgres` | PostgreSQL 16 на Alpine без лишнего `gosu` (0 High после замены Debian) |
+| `images.lock.json` | внешние базовые образы, закреплённые по digest |
+| `environments/*.env.example` | шаблоны окружений runtime, prototype и demo — без секретов |
+| `monitoring/` | Prometheus (одиночный и HA), правила алертов, Alertmanager, дашборд Grafana |
+| `systemd/` | таймеры бэкапов (single, HA diff и full), метрик хоста, socket-прокси Telegram для прототипа |
+| `loadtest/run.py` | нагрузка тестовыми игроками с относительным гейтом p95 и RPS |
+| `scripts/release.py`, `create_release.py`, `select_release.py` | сборка, подпись и проверка манифеста релиза |
+| `scripts/deploy.py`, `rollout.py`, `bootstrap_runtime.py`, `preflight.py` | деплой одиночной VM, rollout HA, подготовка каталога, проверка env |
+| `scripts/backup.py`, `backup_ha.py`, `restore_application.py`, `restore_ha.py`, `recovery_single.py` | резервные копии (restic, pgBackRest) и восстановление |
+| `scripts/prototype_send.py`, `prototype_receive.py`, `install-prototype-cd.sh` | CD прототипа: отправка манифеста и приёмник forced command |
+| `scripts/check_compose.py`, `check_web.py`, `validate.py`, `scan_deployed.py` | проверки конфигурации, production-сборки web и образов |
+| `tests/` | релиз и подписи, discovery, конфигурация, CD прототипа |
+| `security/observed-image-findings.json` | ID проверенных образов и SHA256 отчётов Trivy |
 
-CI использует GitHub-hosted раннеры. Доверенный `mosprom-cd` изолирован от PR. Сборки, публикация и PR не имеют доступа к серверам. Production и staging имеют разные базы, ботов и секреты. Все коммиты, включая служебные PR, используют автора из `.github/commit-author.json`.
+| Workflow | Что делает |
+|---|---|
+| `validate.yml` | Ruff, Bandit, разбор compose, тесты deploy и discovery |
+| `deploy.yml` | `main` → staging автоматически, production вручную по Release ID, прошедшему staging |
+| `infrastructure-images.yml` | сборка и Trivy инфраструктурных образов, PR с закреплёнными digest |
+| `security.yml` | еженедельно: gitleaks, actionlint, ShellCheck, hadolint, pip-audit, Trivy и пересканирование развёрнутых образов |
+| `recovery.yml` | еженедельная репетиция восстановления из off-host копии с проверкой подписей |
+| `fault-tests.yml` | отказы площадок и Patroni — только на выделенном staging |
+| `loadtest.yml` | нагрузочные серии с сохранением RPS, p50, p95, ошибок |
 
-## Первый запуск
+## Проверка перед пушем
 
-Начните с [RUNBOOK.md](RUNBOOK.md): там указаны bootstrap GitHub App, инфраструктурных образов, secrets, CODEOWNERS, одиночного стенда и HA-профиля. Порядок важен: frontend → submodule/backend → полный релиз → staging → production.
-
-```sh
+```bash
 python -m venv .venv
-.venv/bin/pip install --require-hashes -r requirements.lock
-.venv/bin/python scripts/validate.py
-.venv/bin/pytest -q
-.venv/bin/python scripts/check_compose.py
 ```
 
-Справка: [маршрутизация](docs/routing.md), [HA и сертификаты](docs/ha.md), [эксплуатация и восстановление](RUNBOOK.md), [результаты проверок](VALIDATION.md).
+```bash
+.venv/bin/pip install --require-hashes -r requirements.lock
+```
 
-Локальные результаты: frontend 844 passed + 1 разрешённый skip, API 811, bot 105, контракт 200, sim 104, Docker E2E 251, deploy 19. Выбор региона и отрицательные проверки подписи моделировались; перезапуски одноузлового Docker-стенда выполнялись фактически. Реальные четыре площадки, PITR и нагрузочные серии ещё не испытаны.
+```bash
+.venv/bin/python scripts/validate.py && .venv/bin/pytest -q && .venv/bin/python scripts/check_compose.py
+```
 
-Лендинг публичного прототипа расположен на `/`, игра на `/app`; Telegram WEBAPP_URL также должен оканчиваться на `/app`. Односерверный профиль без Patroni, границы демонстрационной HR-панели и правила изоляции — в deploy/PROTOTYPE.md.
+## Что проверено
+
+Сводка на 24.10.2026; полные таблицы с методикой — [`VALIDATION.md`](VALIDATION.md).
+
+| Проверка | Результат |
+|---|---|
+| Frontend (Vitest, ESLint, svelte-check, build, бюджет бандла) | 844 пройдено, 0 ошибок; JS/CSS gzip 505 КБ при лимите 1,5 МБ |
+| API · бот · контракт · симулятор | 811 · 105 · 200 · 104 — без пропусков, на настоящих PostgreSQL 16, Redis 7 и sim |
+| Docker E2E | 251 — настоящий `HttpGameApi`, миграции, перезапуски API, sim и БД |
+| Маршрутизация и HTTP-клиент | 43 — медиана, таймауты, TTL/draining, совместимость, hysteresis, потерянный ответ |
+| Trivy образов api, bot, web/Caddy, sim, discovery, PostgreSQL | **0 High / 0 Critical** без ignore-unfixed и без исключений (было 44 · 44 · 6 High) |
+| gitleaks по всей истории, pip-audit, pnpm audit | без необработанных находок; 2 ложных срабатывания с владельцем и сроком |
+| Прототип на сервере | HTTPS, `/ready`, `426` на чужую ревизию, `404` на `/internal`, настоящий Bot API, анкета 201/204, восстановление дампа в отдельную БД |
+
+## Ограничения и честные границы
+
+* **Четыре площадки — референс.** МОСКВА-1 / КАЗАНЬ / САНКТ-ПЕТЕРБУРГ / МОСКВА-2 — пример inventory; фактически развёрнут один сервер прототипа. Межплощадочный failover, PITR и нагрузочные серии подготовлены, но на реальных площадках не запускались.
+* **Прототип доставлен проверенными архивами**, а не подписанным GHCR-релизом: provenance для него не заявляется. CD из infra-веток подготовлен и включается переменной `PROTOTYPE_CD_ENABLED` после bootstrap.
+* **Бэкапы прототипа на том же хосте** — проверочная копия вынесена вручную, потеря хоста локальным томом не покрывается.
+* **CRM на `/hr` — демо на вымышленных кандидатах**; реальные анкеты лендинга сохраняются в БД прототипа, но в демо-CRM не показываются.
+* **Регионы выбираются по задержке HTTPS-запроса**, а не ICMP: это не гарантия задержки игровой команды.
+
+| Документ | Что внутри |
+|---|---|
+| [`RUNBOOK.md`](RUNBOOK.md) | bootstrap GitHub, одиночная VM, распределённый профиль, откат, восстановление, диагностика |
+| [`PROTOTYPE.md`](PROTOTYPE.md) · [`PROTOTYPE-CD.md`](PROTOTYPE-CD.md) · [`PROTOTYPE-VALIDATION.md`](PROTOTYPE-VALIDATION.md) | прототип: эксплуатация · CD · фактические проверки |
+| [`DEMO.md`](DEMO.md) | локальный стенд для жюри |
+| [`VALIDATION.md`](VALIDATION.md) | результаты проверок и что осталось подтвердить на staging |
+| [`docs/routing.md`](docs/routing.md) · [`docs/ha.md`](docs/ha.md) · [`docs/performance.md`](docs/performance.md) | discovery · HA и сертификаты · методика масштабирования |
+| [`SECURITY.md`](SECURITY.md) | как сообщить об уязвимости, правила исключений |
+| [`backend`](https://github.com/cvn-mosprom/backend#readme) · [`frontend`](https://github.com/cvn-mosprom/frontend#readme) | сервер и бот · игра, лендинг, CRM |
