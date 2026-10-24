@@ -27,7 +27,8 @@ def main():
         known = Path(temporary) / 'known_hosts'
         key.write_text(os.environ['PROTOTYPE_SSH_KEY'].strip() + '\n')
         known.write_text(os.environ['PROTOTYPE_SSH_KNOWN_HOSTS'].strip() + '\n')
-        payload = json.dumps({'release': data, 'registryToken': os.environ['GH_TOKEN']}).encode()
+        payload = json.dumps({'release': data, 'registryToken': os.environ['GH_TOKEN'],
+                              'registryUser': os.environ['GITHUB_ACTOR']}).encode()
         subprocess.run(['ssh', '-F', '/dev/null', '-i', str(key), '-o', 'IdentitiesOnly=yes',
                         '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes',
                         '-o', 'UserKnownHostsFile=' + str(known), '-o', 'ConnectTimeout=15',

@@ -82,6 +82,24 @@ def test_configuration_drift_blocks_before_registry_or_docker(tmp_path):
     command.assert_not_called()
 
 
+def test_ephemeral_registry_auth_uses_the_actual_actions_actor(tmp_path):
+    captured = {}
+    data = release()
+
+    def checked(_data, *, env):
+        configuration = json.loads((Path(env['DOCKER_CONFIG']) / 'config.json').read_text())
+        captured['credential'] = base64.b64decode(configuration['auths']['ghcr.io']['auth']).decode()
+        raise RuntimeError('stop before any Docker changes')
+
+    with patch.object(receiver, 'STATE', tmp_path), \
+            patch.object(receiver, 'configuration_digest', return_value=data['configurationSha256']), \
+            patch.object(receiver, 'verify', side_effect=checked):
+        with pytest.raises(RuntimeError):
+            receiver.deploy(data, 'synthetic-token', 'ci-actor')
+    assert captured['credential'] == 'ci-actor:synthetic-token'
+    assert not list(tmp_path.glob('registry-*'))
+
+
 def test_compose_commands_have_one_fixed_project_and_configuration():
     command = receiver.dc(Path('/fixed/images.env'), 'up', '-d', '--no-deps', *receiver.SERVICES)
     assert command[:4] == ['docker', 'compose', '--project-name', 'mosprom-prototype']

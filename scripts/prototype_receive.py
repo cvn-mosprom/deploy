@@ -6,6 +6,7 @@ import base64
 import fcntl
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -69,7 +70,7 @@ def smoke(release_id: str):
     raise RuntimeError('prototype smoke failed')
 
 
-def deploy(data: dict, token: str):
+def deploy(data: dict, token: str, registry_user: str = 'github-actions'):
     validate(data)
     if configuration_digest(CONFIG) != data['configurationSha256']:
         raise ValueError('configuration drift: review and bootstrap server configuration separately')
@@ -77,7 +78,7 @@ def deploy(data: dict, token: str):
     with (STATE / 'deploy.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         with tempfile.TemporaryDirectory(prefix='registry-', dir=STATE) as temporary:
-            auth = base64.b64encode(('x-access-token:' + token).encode()).decode()
+            auth = base64.b64encode((registry_user + ':' + token).encode()).decode()
             (Path(temporary) / 'config.json').write_text(json.dumps({'auths': {'ghcr.io': {'auth': auth}}}))
             env = {'PATH': '/usr/local/bin:/usr/bin:/bin', 'HOME': '/root', 'DOCKER_CONFIG': temporary,
                    'PROTOTYPE_ENV_FILE': str(RUNTIME)}
@@ -149,8 +150,11 @@ def main():
     token = request['registryToken']
     if not isinstance(token, str) or not 20 <= len(token) <= 1000 or not token.replace('_', '').isalnum():
         raise SystemExit('invalid ephemeral registry token')
+    registry_user = request['registryUser']
+    if not isinstance(registry_user, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.\[\]-]{0,99}', registry_user):
+        raise SystemExit('invalid registry actor')
     try:
-        deploy(request['release'], token)
+        deploy(request['release'], token, registry_user)
     except Exception as error:
         # Do not serialize the input, environment or subprocess output, which may contain credentials.
         print('prototype deployment failed: ' + type(error).__name__, file=sys.stderr)
