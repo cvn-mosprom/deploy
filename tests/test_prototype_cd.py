@@ -151,8 +151,8 @@ def test_stale_telegram_menu_is_reconciled_without_sending_messages(tmp_path):
     assert [item.full_url.rsplit('/', 1)[-1].split('?', 1)[0] for item in requests] == [
         'getMe', 'getChatMenuButton', 'setChatMenuButton', 'getChatMenuButton']
     from urllib.parse import parse_qs, urlsplit
-    assert all(item.get_method() == 'POST' and item.data == b'' for item in requests)
-    assert json.loads(parse_qs(urlsplit(requests[2].full_url).query)['menu_button'][0])['web_app']['url'] == 'https://ochakovo.velikoss.ru/app'
+    assert all(item.get_method() == 'POST' and not urlsplit(item.full_url).query for item in requests)
+    assert json.loads(parse_qs(requests[2].data.decode())['menu_button'][0])['web_app']['url'] == 'https://ochakovo.velikoss.ru/app'
 
 
 def test_compose_commands_have_one_fixed_project_and_configuration():
