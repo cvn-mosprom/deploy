@@ -19,7 +19,7 @@ services:
       DEV_AUTH: "1"
       DATABASE_URL: postgresql+asyncpg://mosprom_app:${POSTGRES_PASSWORD}@db:5432/mosprom
       REDIS_URL: redis://redis:6379/0
-      WEBAPP_URL: http://localhost:8080/
+      WEBAPP_URL: http://localhost:8080/app
       CORS_ORIGINS: http://localhost:8080
       BOT_TOKEN: ""
   migrate:

@@ -15,6 +15,8 @@
   import {$TLS_SNIPPET:acme}
   import /etc/caddy/content-security-policy.caddy
   encode zstd gzip
+  redir /landing / 308
+  redir /landing/ / 308
   header {
     Strict-Transport-Security "max-age=31536000"
     X-Content-Type-Options nosniff
@@ -60,7 +62,7 @@
     header @immutable Cache-Control "public, max-age=31536000, immutable"
     @pages not path /_app/immutable/* /fonts/* /audio/* /icons/* /labels/* /landing/*
     header @pages Cache-Control no-cache
-    try_files {path} {path}.html /index.html
+    try_files {path} {path}.html /200.html
     file_server
   }
 }

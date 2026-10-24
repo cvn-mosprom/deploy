@@ -80,3 +80,17 @@ def test_signed_image_must_support_target_platform():
     with patch('release.subprocess.run'), patch('release.subprocess.check_output', side_effect=[envelope, '{"manifests": []}']):
         with pytest.raises(ValueError, match='amd64'):
             verify(manifest())
+
+
+def test_deployment_readiness_uses_origin_when_game_is_under_app():
+    from unittest.mock import MagicMock, patch
+    from deploy import smoke
+    response = MagicMock()
+    response.__enter__.return_value = response
+    response.status = 200
+    response.read.return_value = b'{"status":"ready"}'
+    opener = MagicMock()
+    opener.open.return_value = response
+    with patch('deploy.urllib.request.build_opener', return_value=opener):
+        smoke('https://game.example.com/app?src=telegram')
+    opener.open.assert_called_once_with('https://game.example.com/ready', timeout=5)

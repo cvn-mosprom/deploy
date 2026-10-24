@@ -1,0 +1,12 @@
+[Unit]
+Description=Forward Mosprom Telegram traffic to existing loopback Xray HTTP proxy
+Requires=mosprom-telegram-proxy.socket
+After=mosprom-telegram-proxy.socket
+[Service]
+ExecStart=/lib/systemd/systemd-socket-proxyd 127.0.0.1:10890
+DynamicUser=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+MemoryMax=32M

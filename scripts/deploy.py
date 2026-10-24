@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 import time
 import urllib.request
+from urllib.parse import urlsplit
 from pathlib import Path
 
 from preflight import check, read_env
@@ -31,6 +32,8 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 def smoke(url: str, timeout: int = 120):
     if not url.startswith("https://"):
         raise ValueError("readiness must use HTTPS")
+    parts = urlsplit(url)
+    url = f"{parts.scheme}://{parts.netloc}"
     opener = urllib.request.build_opener(NoRedirect())
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:

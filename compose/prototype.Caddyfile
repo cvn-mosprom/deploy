@@ -1,0 +1,57 @@
+{
+  admin off
+  persist_config off
+  auto_https off
+}
+:8080 {
+  import /etc/caddy/content-security-policy.caddy
+  encode zstd gzip
+  header {
+    X-Content-Type-Options nosniff
+    Referrer-Policy strict-origin-when-cross-origin
+  }
+  log {
+    format filter {
+      wrap json
+      fields {
+        request>headers>X-Telegram-Init-Data delete
+        request>headers>X-Dev-User delete
+        request>headers>Authorization delete
+        request>headers>Cookie delete
+      }
+    }
+  }
+  redir /landing / 308
+  redir /landing/ / 308
+  @private path /internal /internal/* /metrics
+  handle @private {
+    respond 404
+  }
+  handle /routing/regions {
+    header Cache-Control no-store
+    respond "discovery disabled in single-server prototype" 503
+  }
+  @api path /api/* /health /ready /routing/ping /routing/report
+  handle @api {
+    request_body {
+      max_size 2MB
+    }
+    reverse_proxy api:8000 {
+      transport http {
+        dial_timeout 3s
+        response_header_timeout 15s
+      }
+    }
+  }
+  @assets path /landing/* /labels/* /audio/* /icons/* /fonts/* /_app/*
+  handle @assets {
+    root * /srv
+    file_server
+  }
+  handle {
+    root * /srv
+    header Cache-Control no-cache
+    try_files {path} {path}.html /200.html
+    file_server
+  }
+}

@@ -1,0 +1,130 @@
+# Isolated jury server: host TLS ingress -> 127.0.0.1:18081; no Patroni/etcd/existing volumes.
+name: mosprom-prototype
+x-logging: &logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+x-runtime: &runtime
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: ["/tmp:rw,nosuid,noexec,size=32m"]
+  logging: *logging
+services:
+  web:
+    <<: *runtime
+    image: ${WEB_IMAGE:?required}
+    mem_limit: 192m
+    cpus: 0.5
+    ports: ["127.0.0.1:${PROTOTYPE_HTTP_PORT:-18081}:8080"]
+    environment:
+      ROUTING_ZONE: ${DOMAIN:?required}
+    volumes: ["./prototype.Caddyfile:/etc/caddy/Caddyfile:ro"]
+    depends_on: {api: {condition: service_healthy}}
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://127.0.0.1:8080/health]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+  api:
+    <<: *runtime
+    image: ${API_IMAGE:?required}
+    mem_limit: 640m
+    cpus: 1.25
+    env_file: ["${PROTOTYPE_ENV_FILE:?required}"]
+    environment:
+      APP_ENV: prod
+      DEV_AUTH: "0"
+      DATABASE_URL: postgresql+asyncpg://mosprom_app:${POSTGRES_PASSWORD:?required}@db:5432/mosprom
+      REDIS_URL: redis://redis:6379/0
+      SIM_URL: http://sim:8080
+      MEDIA_URL: ""
+      WEB_CONCURRENCY: "2"
+      DB_POOL_SIZE: "5"
+      DB_MAX_OVERFLOW: "5"
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+      sim: {condition: service_healthy}
+  migrate:
+    <<: *runtime
+    image: ${API_IMAGE:?required}
+    restart: "no"
+    mem_limit: 384m
+    cpus: 0.75
+    env_file: ["${PROTOTYPE_ENV_FILE:?required}"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://mosprom_migrate:${MIGRATION_PASSWORD:?required}@db:5432/mosprom
+    command: [alembic, upgrade, head]
+    depends_on: {db: {condition: service_healthy}}
+  bot:
+    <<: *runtime
+    image: ${BOT_IMAGE:?required}
+    mem_limit: 320m
+    cpus: 0.5
+    env_file: ["${PROTOTYPE_ENV_FILE:?required}"]
+    environment:
+      APP_ENV: prod
+      DATABASE_URL: postgresql+asyncpg://mosprom_app:${POSTGRES_PASSWORD:?required}@db:5432/mosprom
+      REDIS_URL: redis://redis:6379/0
+      API_INTERNAL_URL: http://api:8000
+    depends_on: {api: {condition: service_healthy}}
+  sim:
+    <<: *runtime
+    image: ${SIM_IMAGE:?required}
+    mem_limit: 512m
+    cpus: 1.0
+    environment: {PORT: "8080", SIM_WORKERS: "2"}
+  db:
+    image: ${POSTGRES_IMAGE:?patched PostgreSQL image required}
+    restart: unless-stopped
+    mem_limit: 768m
+    cpus: 1.0
+    shm_size: 128m
+    environment:
+      POSTGRES_USER: mosprom_admin
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?required}
+      POSTGRES_DB: mosprom
+      APP_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      MIGRATION_PASSWORD: ${MIGRATION_PASSWORD:?required}
+    volumes: [pgdata:/var/lib/postgresql/data, ./init-db.sql:/docker-entrypoint-initdb.d/10-roles.sql:ro]
+    healthcheck:
+      test: [CMD, pg_isready, -h, "127.0.0.1", -U, mosprom_admin, -d, mosprom]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging: *logging
+  redis:
+    <<: *runtime
+    user: redis
+    image: ${REDIS_IMAGE:-docker.io/library/redis:7-alpine@sha256:57e4255cc971b1c8d6f8a6ca283ac01bc3ecdd914273ef6bfaede87aaecd6541}
+    mem_limit: 256m
+    cpus: 0.25
+    command: [redis-server, --save, "", --appendonly, "no", --maxmemory, 128mb, --maxmemory-policy, volatile-lru]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  backup:
+    <<: *runtime
+    image: ${POSTGRES_IMAGE:?patched PostgreSQL image required}
+    mem_limit: 192m
+    cpus: 0.25
+    entrypoint: [/bin/sh, /scripts/backup.sh, --loop]
+    environment:
+      PGHOST: db
+      PGPORT: "5432"
+      PGUSER: mosprom_migrate
+      PGPASSWORD: ${MIGRATION_PASSWORD:?required}
+      PGDATABASE: mosprom
+      BACKUP_DIR: /backups
+    volumes: [backups:/backups, ../scripts/prototype-backup.sh:/scripts/backup.sh:ro]
+    depends_on: {api: {condition: service_healthy}}
+networks:
+  default:
+    ipam:
+      config: [{subnet: "${PROTOTYPE_NETWORK_CIDR:-172.30.92.0/24}"}]
+volumes:
+  pgdata:
+  backups:

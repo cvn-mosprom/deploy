@@ -26,7 +26,7 @@ try {
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error' && /Content Security Policy|Refused to execute inline/i.test(m.text())) errors.push(m.text()); });
-  for (const path of ['/', '/landing', '/privacy']) {
+  for (const path of ['/', '/app', '/privacy']) {
     const response = await page.goto(url + path, { waitUntil: 'domcontentloaded' });
     assert.equal(response.status(), 200);
     assert.ok(response.headers()['content-security-policy'].includes("'sha256-"));

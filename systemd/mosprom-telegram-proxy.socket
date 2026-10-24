@@ -1,0 +1,12 @@
+[Unit]
+Description=Telegram egress for isolated Mosprom Docker network
+DefaultDependencies=no
+After=sysinit.target docker.service
+Before=shutdown.target
+Conflicts=shutdown.target
+Requires=docker.service
+[Socket]
+ListenStream=172.30.92.1:18090
+Accept=no
+[Install]
+WantedBy=multi-user.target
