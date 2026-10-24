@@ -12,6 +12,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+import urllib.parse
 from pathlib import Path
 
 from prototype_release import configuration_digest, render, validate, verify
@@ -60,9 +61,11 @@ def reconcile_telegram_menu():
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({'https': proxy} if proxy else {}), NoRedirect())
 
     def call(method, body=None):
+        parameters = {key: json.dumps(value) if isinstance(value, (dict, list)) else value
+                      for key, value in (body or {}).items()}
         request = urllib.request.Request('https://api.telegram.org/bot' + runtime['BOT_TOKEN'] + '/' + method,
-            data=json.dumps(body).encode() if body is not None else None,
-            headers={'Content-Type': 'application/json'})
+            data=urllib.parse.urlencode(parameters).encode(),
+            headers={'Content-Type': 'application/x-www-form-urlencoded', 'Cache-Control': 'no-store'})
         with opener.open(request, timeout=20) as response:
             data = json.load(response)
         if not data.get('ok'):
