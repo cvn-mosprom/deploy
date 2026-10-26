@@ -1,4 +1,4 @@
-FROM docker.io/library/python:3.12-alpine3.24@sha256:b658b05ce9c4eb97ec6fc19424818a1f31993659c2b505a532f470e83807815d
+FROM docker.io/library/python:3.15-alpine3.24@sha256:d44b1254cb92329418d164b22b20d86bbd3869d48e80e09e476531a409a728bb
 WORKDIR /app
 COPY server.py ./server.py
 USER 10003:10003
